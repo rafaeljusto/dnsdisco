@@ -3,7 +3,7 @@ dnsdisco
 
 [![GoDoc](https://godoc.org/github.com/rafaeljusto/dnsdisco?status.png)](https://godoc.org/github.com/rafaeljusto/dnsdisco)
 
-DNS service discovery library with health check and load balancer features.
+**DNS** service **disco**very library with health check and load balancer features.
 
 The library is very flexible and uses interfaces everywhere to make it
 possible for the library user to replace any part with a custom algorithm. A
