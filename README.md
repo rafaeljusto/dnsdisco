@@ -1,0 +1,2 @@
+# dnsdisco
+DNS service discovery
