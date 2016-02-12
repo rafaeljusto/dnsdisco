@@ -73,12 +73,12 @@ type Discovery struct {
 	// list, as it is already ordered by priority and weight.
 	Balancer balancer
 
-	// services stores the retrieved services to avoid DNS requests all the time.
-	services []*net.SRV
+	// servers stores the retrieved servers to avoid DNS requests all the time.
+	servers []*net.SRV
 }
 
 // NewDiscovery builds a Discovery type with all default values. To retrieve the
-// services it will use the net.LookupSRV (local resolver), for health check
+// servers it will use the net.LookupSRV (local resolver), for health check
 // will only perform a simple connection, and the chosen target will be the
 // first online one.
 func NewDiscovery(service, proto, name string) Discovery {
@@ -87,8 +87,8 @@ func NewDiscovery(service, proto, name string) Discovery {
 		Name:    name,
 		Proto:   proto,
 
-		Retriever: RetrieverFunc(func(service, proto, name string) (services []*net.SRV, err error) {
-			_, services, err = net.LookupSRV(service, proto, name)
+		Retriever: RetrieverFunc(func(service, proto, name string) (servers []*net.SRV, err error) {
+			_, servers, err = net.LookupSRV(service, proto, name)
 			return
 		}),
 
@@ -106,9 +106,9 @@ func NewDiscovery(service, proto, name string) Discovery {
 			return true, nil
 		}),
 
-		Balancer: BalancerFunc(func(services []*net.SRV, healthCheck healthChecker, proto string) (index int) {
-			for i, service := range services {
-				ok, err := healthCheck.HealthCheck(service.Target, service.Port, proto)
+		Balancer: BalancerFunc(func(servers []*net.SRV, healthCheck healthChecker, proto string) (index int) {
+			for i, server := range servers {
+				ok, err := healthCheck.HealthCheck(server.Target, server.Port, proto)
 				if err != nil || !ok {
 					continue
 				}
@@ -121,11 +121,11 @@ func NewDiscovery(service, proto, name string) Discovery {
 	}
 }
 
-// Refresh retrieves the services using the DNS SRV solution. It is possible to
+// Refresh retrieves the servers using the DNS SRV solution. It is possible to
 // change the default behaviour (local resolver with default timeouts) replacing
 // the Retriever attribute from the Discovery type.
 func (d *Discovery) Refresh() (err error) {
-	d.services, err = d.Retriever.Retrieve(d.Service, d.Proto, d.Name)
+	d.servers, err = d.Retriever.Retrieve(d.Service, d.Proto, d.Name)
 	return
 }
 
@@ -134,8 +134,8 @@ func (d *Discovery) Refresh() (err error) {
 // weight. It is possible to change the balancer behaviour replacing the
 // Balancer attribute from the Discovery type.
 func (d Discovery) Choose() (target string, port uint16) {
-	if i := d.Balancer.Balance(d.services, d.HealthChecker, d.Proto); i >= 0 && i < len(d.services) {
-		return d.services[i].Target, d.services[i].Port
+	if i := d.Balancer.Balance(d.servers, d.HealthChecker, d.Proto); i >= 0 && i < len(d.servers) {
+		return d.servers[i].Target, d.servers[i].Port
 	}
 	return
 }
@@ -178,14 +178,14 @@ func (h HealthCheckerFunc) HealthCheck(target string, port uint16, proto string)
 // balancer allows the library user to define a custom balance algorithm.
 type balancer interface {
 	// Balance will choose the best target.
-	Balance(services []*net.SRV, healthCheck healthChecker, proto string) (index int)
+	Balance(servers []*net.SRV, healthCheck healthChecker, proto string) (index int)
 }
 
 // BalancerFunc is an easy-to-use implementation of the interface that is
 // responsible for choosing the best target.
-type BalancerFunc func(services []*net.SRV, healthCheck healthChecker, proto string) (index int)
+type BalancerFunc func(servers []*net.SRV, healthCheck healthChecker, proto string) (index int)
 
 // Balance will choose the best target.
-func (b BalancerFunc) Balance(services []*net.SRV, healthCheck healthChecker, proto string) (index int) {
-	return b(services, healthCheck, proto)
+func (b BalancerFunc) Balance(servers []*net.SRV, healthCheck healthChecker, proto string) (index int) {
+	return b(servers, healthCheck, proto)
 }
