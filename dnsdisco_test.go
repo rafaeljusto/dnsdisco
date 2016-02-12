@@ -76,7 +76,7 @@ func ExampleDiscover() {
 	// Port: 5269
 }
 
-func ExampleCustomRetriever() {
+func ExampleRetrieverFunc() {
 	discovery := NewDiscovery("jabber", "tcp", "registro.br")
 	discovery.Retriever = RetrieverFunc(func(service, proto, name string) (servers []*net.SRV, err error) {
 		client := dns.Client{
