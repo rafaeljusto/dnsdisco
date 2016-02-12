@@ -1,31 +1,15 @@
-// Package dnsdisco is a DNS service discovery library with health check and
-// load balancer features.
-//
-// The library is very flexible and uses interfaces everywhere to make it
-// possible for the library user to replace any part with a custom algorithm. A
-// basic use would be:
-//
-//    package main
-//
-//    import (
-//      "fmt"
-//      "github.com/rafaeljusto/dnsdisco"
-//    )
-//
-//    func main() {
-//      target, port, err := dnsdisco.Discover("jabber", "tcp", "registro.br")
-//      if err != nil {
-//        fmt.Println(err)
-//        return
-//      }
-//
-//      fmt.Printf("Target: %s\nPort: %d\n", target, port)
-//    }
 package dnsdisco
 
 import (
 	"fmt"
 	"net"
+	"time"
+)
+
+const (
+	// defaultHealthCheckerTTL stores the default cache duration of the health
+	// check result for a specific server.
+	defaultHealthCheckerTTL = 5 * time.Second
 )
 
 // Discover is the fastest way to find a target using all the default
@@ -67,6 +51,10 @@ type Discovery struct {
 	// only tries a simple connection to the target.
 	HealthChecker healthChecker
 
+	// HealthCheckerTTL stores the cache time of a a health check result for a
+	// specific server.
+	HealthCheckerTTL time.Duration
+
 	// Balancer is responsible for choosing the target that will be used. It has
 	// the healthChecker as parameter to make it possible to choose only an online
 	// target. By default the library choose the first online target from the
@@ -74,7 +62,7 @@ type Discovery struct {
 	Balancer balancer
 
 	// servers stores the retrieved servers to avoid DNS requests all the time.
-	servers []*net.SRV
+	servers []Server
 }
 
 // NewDiscovery builds a Discovery type with all default values. To retrieve the
@@ -105,15 +93,13 @@ func NewDiscovery(service, proto, name string) Discovery {
 			conn.Close()
 			return true, nil
 		}),
+		HealthCheckerTTL: defaultHealthCheckerTTL,
 
-		Balancer: BalancerFunc(func(servers []*net.SRV, healthCheck healthChecker, proto string) (index int) {
+		Balancer: BalancerFunc(func(servers []Server) (index int) {
 			for i, server := range servers {
-				ok, err := healthCheck.HealthCheck(server.Target, server.Port, proto)
-				if err != nil || !ok {
-					continue
+				if server.LastHealthCheck {
+					return i
 				}
-
-				return i
 			}
 
 			return -1
@@ -124,17 +110,38 @@ func NewDiscovery(service, proto, name string) Discovery {
 // Refresh retrieves the servers using the DNS SRV solution. It is possible to
 // change the default behaviour (local resolver with default timeouts) replacing
 // the Retriever attribute from the Discovery type.
-func (d *Discovery) Refresh() (err error) {
-	d.servers, err = d.Retriever.Retrieve(d.Service, d.Proto, d.Name)
-	return
+func (d *Discovery) Refresh() error {
+	servers, err := d.Retriever.Retrieve(d.Service, d.Proto, d.Name)
+	if err != nil {
+		return err
+	}
+
+	d.servers = nil
+	for _, srv := range servers {
+		d.servers = append(d.servers, Server{
+			SRV: *srv,
+		})
+	}
+
+	return nil
 }
 
 // Choose will return the best target to use based on a defined balancer. By
 // default the library choose the first online target with best priority and
 // weight. It is possible to change the balancer behaviour replacing the
 // Balancer attribute from the Discovery type.
-func (d Discovery) Choose() (target string, port uint16) {
-	if i := d.Balancer.Balance(d.servers, d.HealthChecker, d.Proto); i >= 0 && i < len(d.servers) {
+func (d *Discovery) Choose() (target string, port uint16) {
+	for i, server := range d.servers {
+		if time.Now().Sub(server.lastHealthCheckAt) < d.HealthCheckerTTL {
+			continue
+		}
+
+		ok, err := d.HealthChecker.HealthCheck(server.Target, server.Port, d.Proto)
+		d.servers[i].LastHealthCheck = err == nil && ok
+		d.servers[i].lastHealthCheckAt = time.Now()
+	}
+
+	if i := d.Balancer.Balance(d.servers); i >= 0 && i < len(d.servers) {
 		return d.servers[i].Target, d.servers[i].Port
 	}
 	return
@@ -178,14 +185,29 @@ func (h HealthCheckerFunc) HealthCheck(target string, port uint16, proto string)
 // balancer allows the library user to define a custom balance algorithm.
 type balancer interface {
 	// Balance will choose the best target.
-	Balance(servers []*net.SRV, healthCheck healthChecker, proto string) (index int)
+	Balance(servers []Server) (index int)
 }
 
 // BalancerFunc is an easy-to-use implementation of the interface that is
 // responsible for choosing the best target.
-type BalancerFunc func(servers []*net.SRV, healthCheck healthChecker, proto string) (index int)
+type BalancerFunc func(servers []Server) (index int)
 
 // Balance will choose the best target.
-func (b BalancerFunc) Balance(servers []*net.SRV, healthCheck healthChecker, proto string) (index int) {
-	return b(servers, healthCheck, proto)
+func (b BalancerFunc) Balance(servers []Server) (index int) {
+	return b(servers)
+}
+
+// Server stores a server information from the SRV DNS record type plus some
+// extra information to control the requests for this server.
+type Server struct {
+	net.SRV
+
+	// LastHealthCheck stores the result of the last health check for caching
+	// purpose.
+	LastHealthCheck bool
+
+	// lastHealthCheckAt is responsible for keeping the last time that the health
+	// check was performed for this server. This guarantees that we aren't going
+	// to check the server every time.
+	lastHealthCheckAt time.Time
 }
