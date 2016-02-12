@@ -87,12 +87,12 @@ func NewDiscovery(service, proto, name string) Discovery {
 		Name:    name,
 		Proto:   proto,
 
-		Retriever: Retrieve(func(service, proto, name string) (services []*net.SRV, err error) {
+		Retriever: RetrieverFunc(func(service, proto, name string) (services []*net.SRV, err error) {
 			_, services, err = net.LookupSRV(service, proto, name)
 			return
 		}),
 
-		HealthChecker: HealthCheck(func(target string, port uint16, proto string) (ok bool, err error) {
+		HealthChecker: HealthCheckerFunc(func(target string, port uint16, proto string) (ok bool, err error) {
 			address := fmt.Sprintf("%s:%d", target, port)
 			if proto != "tcp" && proto != "udp" {
 				return false, net.UnknownNetworkError(proto)
@@ -106,9 +106,9 @@ func NewDiscovery(service, proto, name string) Discovery {
 			return true, nil
 		}),
 
-		Balancer: Balance(func(services []*net.SRV, healthCheck healthChecker, proto string) (index int) {
+		Balancer: BalancerFunc(func(services []*net.SRV, healthCheck healthChecker, proto string) (index int) {
 			for i, service := range services {
-				ok, err := healthCheck.Check(service.Target, service.Port, proto)
+				ok, err := healthCheck.HealthCheck(service.Target, service.Port, proto)
 				if err != nil || !ok {
 					continue
 				}
@@ -147,31 +147,31 @@ type retriever interface {
 	Retrieve(service, proto, name string) ([]*net.SRV, error)
 }
 
-// Retrieve is an easy-to-use implementation of the interface that is
+// RetrieverFunc is an easy-to-use implementation of the interface that is
 // responsible for sending the DNS SRV requests.
-type Retrieve func(service, proto, name string) ([]*net.SRV, error)
+type RetrieverFunc func(service, proto, name string) ([]*net.SRV, error)
 
 // Retrieve will send the DNS request and return all SRV records retrieved from
 // the response.
-func (r Retrieve) Retrieve(service, proto, name string) ([]*net.SRV, error) {
+func (r RetrieverFunc) Retrieve(service, proto, name string) ([]*net.SRV, error) {
 	return r(service, proto, name)
 }
 
 // healthChecker allows the library user to define a custom health check
 // algorithm.
 type healthChecker interface {
-	// Check will analyze the target port/proto to check if it is still capable of
-	// receiving requests.
-	Check(target string, port uint16, proto string) (ok bool, err error)
+	// HealthCheck will analyze the target port/proto to check if it is still
+	// capable of receiving requests.
+	HealthCheck(target string, port uint16, proto string) (ok bool, err error)
 }
 
-// HealthCheck is an easy-to-use implementation of the interface that is
+// HealthCheckerFunc is an easy-to-use implementation of the interface that is
 // responsible for checking if a target is still alive.
-type HealthCheck func(target string, port uint16, proto string) (ok bool, err error)
+type HealthCheckerFunc func(target string, port uint16, proto string) (ok bool, err error)
 
-// Check will analyze the target port/proto to check if it is still capable of
-// receiving requests.
-func (h HealthCheck) Check(target string, port uint16, proto string) (ok bool, err error) {
+// HealthCheck will analyze the target port/proto to check if it is still
+// capable of receiving requests.
+func (h HealthCheckerFunc) HealthCheck(target string, port uint16, proto string) (ok bool, err error) {
 	return h(target, port, proto)
 }
 
@@ -181,11 +181,11 @@ type balancer interface {
 	Balance(services []*net.SRV, healthCheck healthChecker, proto string) (index int)
 }
 
-// Balance is an easy-to-use implementation of the interface that is responsible
-// for choosing the best target.
-type Balance func(services []*net.SRV, healthCheck healthChecker, proto string) (index int)
+// BalancerFunc is an easy-to-use implementation of the interface that is
+// responsible for choosing the best target.
+type BalancerFunc func(services []*net.SRV, healthCheck healthChecker, proto string) (index int)
 
 // Balance will choose the best target.
-func (b Balance) Balance(services []*net.SRV, healthCheck healthChecker, proto string) (index int) {
+func (b BalancerFunc) Balance(services []*net.SRV, healthCheck healthChecker, proto string) (index int) {
 	return b(services, healthCheck, proto)
 }
