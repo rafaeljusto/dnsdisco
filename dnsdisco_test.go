@@ -1,4 +1,4 @@
-package dnsdisco
+package dnsdisco_test
 
 import (
 	"fmt"
@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/miekg/dns"
+	"github.com/rafaeljusto/dnsdisco"
 )
 
 func TestDiscover(t *testing.T) {
@@ -37,13 +38,12 @@ func TestDiscover(t *testing.T) {
 			expectedError: &net.DNSError{
 				Err:    "no such host",
 				Name:   "_jabber._xxx.registro.br",
-				Server: "200.160.3.2:53",
 			},
 		},
 	}
 
 	for i, item := range scenarios {
-		target, port, err := Discover(item.service, item.proto, item.name)
+		target, port, err := dnsdisco.Discover(item.service, item.proto, item.name)
 
 		if target != item.expectedTarget {
 			t.Errorf("scenario %d, “%s”: mismatch targets. Expecting: “%s”; found “%s”",
@@ -55,6 +55,15 @@ func TestDiscover(t *testing.T) {
 				i, item.description, item.expectedPort, port)
 		}
 
+		// As the resolver change between machines, we can't guess the DNSError name's attribute. So we
+		// need to inject the value on the expected error
+		dnsError, ok1 := err.(*net.DNSError)
+		expectedDNSError, ok2 := item.expectedError.(*net.DNSError)
+
+		if ok1 && ok2 {
+			expectedDNSError.Server = dnsError.Server
+		}
+
 		if !reflect.DeepEqual(err, item.expectedError) {
 			t.Errorf("scenario %d, “%s”: mismatch errors. Expecting: “%v”; found “%v”",
 				i, item.description, item.expectedError, err)
@@ -63,7 +72,7 @@ func TestDiscover(t *testing.T) {
 }
 
 func ExampleDiscover() {
-	target, port, err := Discover("jabber", "tcp", "registro.br")
+	target, port, err := dnsdisco.Discover("jabber", "tcp", "registro.br")
 	if err != nil {
 		fmt.Println(err)
 		return
@@ -77,8 +86,8 @@ func ExampleDiscover() {
 }
 
 func ExampleRetrieverFunc() {
-	discovery := NewDiscovery("jabber", "tcp", "registro.br")
-	discovery.Retriever = RetrieverFunc(func(service, proto, name string) (servers []*net.SRV, err error) {
+	discovery := dnsdisco.NewDiscovery("jabber", "tcp", "registro.br")
+	discovery.Retriever = dnsdisco.RetrieverFunc(func(service, proto, name string) (servers []*net.SRV, err error) {
 		client := dns.Client{
 			ReadTimeout:  2 * time.Second,
 			WriteTimeout: 2 * time.Second,
