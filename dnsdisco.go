@@ -2,7 +2,9 @@ package dnsdisco
 
 import (
 	"fmt"
+	"math/rand"
 	"net"
+	"sort"
 	"time"
 )
 
@@ -10,6 +12,10 @@ const (
 	// defaultHealthCheckerTTL stores the default cache duration of the health
 	// check result for a specific server.
 	defaultHealthCheckerTTL = 5 * time.Second
+)
+
+var (
+	randomSource = rand.New(rand.NewSource(time.Now().UnixNano()))
 )
 
 // Discover is the fastest way to find a target using all the default
@@ -95,15 +101,7 @@ func NewDiscovery(service, proto, name string) Discovery {
 		}),
 		HealthCheckerTTL: defaultHealthCheckerTTL,
 
-		Balancer: BalancerFunc(func(servers []Server) (index int) {
-			for i, server := range servers {
-				if server.LastHealthCheck {
-					return i
-				}
-			}
-
-			return -1
-		}),
+		Balancer: new(defaultBalancer),
 	}
 }
 
@@ -189,7 +187,8 @@ type balancer interface {
 }
 
 // BalancerFunc is an easy-to-use implementation of the interface that is
-// responsible for choosing the best target.
+// responsible for choosing the best target. It returns the slice index of the chosen target or -1
+// when none was selected.
 type BalancerFunc func(servers []Server) (index int)
 
 // Balance will choose the best target.
@@ -210,4 +209,99 @@ type Server struct {
 	// check was performed for this server. This guarantees that we aren't going
 	// to check the server every time.
 	lastHealthCheckAt time.Time
+}
+
+// defaultBalancer is the default implementation used when the library client doesn't replace the
+// Balancer attribute.
+type defaultBalancer struct {
+	// servers store the current servers grouped by priorities that are used to select based on the
+	// server weight. Every time a servers is used, it is removed to allow the next one to be chosen.
+	servers map[uint16][]Server
+}
+
+// Balance follows the algorithm described in the RFC 2782, based on the priority and weight of the
+// SRV records.
+//
+// https://tools.ietf.org/html/rfc2782
+//
+// Compute the sum of the weights of those RRs, and with each RR
+// associate the running sum in the selected order. Then choose a
+// uniform random number between 0 and the sum computed
+// (inclusive), and select the RR whose running sum value is the
+// first in the selected order which is greater than or equal to
+// the random number selected. The target host specified in the
+// selected SRV RR is the next one to be contacted by the client.
+// Remove this SRV RR from the set of the unordered SRV RRs and
+// apply the described algorithm to the unordered SRV RRs to select
+// the next target host.  Continue the ordering process until there
+// are no unordered SRV RRs.  This process is repeated for each
+// Priority.
+func (d *defaultBalancer) Balance(servers []Server) (index int) {
+	// TODO(rafaeljusto): When do we detect that the incoming servers are different from what we have
+	// stored in our struct. Remember that we are always removing servers from the internal map as we
+	// start using them
+
+	if d.servers == nil || len(d.servers) == 0 {
+		d.servers = make(map[uint16][]Server)
+
+		for _, server := range servers {
+			d.servers[server.Priority] = append(d.servers[server.Priority], server)
+		}
+	}
+
+	var priorities []int
+	for priority := range d.servers {
+		priorities = append(priorities, int(priority))
+	}
+	sort.Ints(priorities)
+
+	var selectedTarget string
+
+	// A client MUST attempt to contact the target host with the lowest-numbered priority it can reach
+	for _, priority := range priorities {
+		selectedServers := d.servers[uint16(priority)]
+
+		totalWeight := 0
+		selectedServersWeight := make([]int, len(selectedServers))
+
+		// compute the sum of the weights of those RRs, and with each RR
+		// associate the running sum in the selected order
+		for i, server := range selectedServers {
+			totalWeight += int(server.Weight)
+			selectedServersWeight[i] = totalWeight
+		}
+
+		// choose a uniform random number between 0 and the sum computed (inclusive)
+		randomNumber := randomSource.Intn(totalWeight + 1)
+
+		for i, serverWeight := range selectedServersWeight {
+			// select the RR whose running sum value is the first in the selected order which is greater
+			// than or equal to the random number selected
+			if serverWeight >= randomNumber && selectedServers[i].LastHealthCheck {
+				selectedTarget = selectedServers[i].Target
+
+				// remove this SRV RR from the set of the unordered SRV RRs and apply the described
+				// algorithm to the unordered SRV RRs to select the next target host
+				selectedServers = append(selectedServers[:i], selectedServers[i+1:]...)
+				break
+			}
+		}
+
+		// if there're no more servers in the slice, remove the priority from the map
+		if len(selectedServers) == 0 {
+			delete(d.servers, uint16(priority))
+		}
+
+		if selectedTarget != "" {
+			break
+		}
+	}
+
+	for i, server := range servers {
+		if server.Target == selectedTarget {
+			return i
+		}
+	}
+
+	return -1
 }
