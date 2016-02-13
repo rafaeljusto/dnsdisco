@@ -222,20 +222,18 @@ type defaultBalancer struct {
 // Balance follows the algorithm described in the RFC 2782, based on the priority and weight of the
 // SRV records.
 //
-// https://tools.ietf.org/html/rfc2782
-//
-// Compute the sum of the weights of those RRs, and with each RR
-// associate the running sum in the selected order. Then choose a
-// uniform random number between 0 and the sum computed
-// (inclusive), and select the RR whose running sum value is the
-// first in the selected order which is greater than or equal to
-// the random number selected. The target host specified in the
-// selected SRV RR is the next one to be contacted by the client.
-// Remove this SRV RR from the set of the unordered SRV RRs and
-// apply the described algorithm to the unordered SRV RRs to select
-// the next target host.  Continue the ordering process until there
-// are no unordered SRV RRs.  This process is repeated for each
-// Priority.
+//   Compute the sum of the weights of those RRs, and with each RR
+//   associate the running sum in the selected order. Then choose a
+//   uniform random number between 0 and the sum computed
+//   (inclusive), and select the RR whose running sum value is the
+//   first in the selected order which is greater than or equal to
+//   the random number selected. The target host specified in the
+//   selected SRV RR is the next one to be contacted by the client.
+//   Remove this SRV RR from the set of the unordered SRV RRs and
+//   apply the described algorithm to the unordered SRV RRs to select
+//   the next target host.  Continue the ordering process until there
+//   are no unordered SRV RRs.  This process is repeated for each
+//   Priority.
 func (d *defaultBalancer) Balance(servers []Server) (index int) {
 	// TODO(rafaeljusto): When do we detect that the incoming servers are different from what we have
 	// stored in our struct. Remember that we are always removing servers from the internal map as we
