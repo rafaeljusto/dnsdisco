@@ -139,7 +139,12 @@ func (d *Discovery) Choose() (target string, port uint16) {
 		d.servers[i].lastHealthCheckAt = time.Now()
 	}
 
-	if i := d.Balancer.Balance(d.servers); i >= 0 && i < len(d.servers) {
+	// don't allow the balancer to modify the original servers slice
+	serversCopy := make([]Server, len(d.servers))
+	copy(serversCopy, d.servers)
+
+	if i := d.Balancer.Balance(serversCopy); i >= 0 && i < len(d.servers) {
+		d.servers[i].Used++
 		return d.servers[i].Target, d.servers[i].Port
 	}
 	return
@@ -209,14 +214,15 @@ type Server struct {
 	// check was performed for this server. This guarantees that we aren't going
 	// to check the server every time.
 	lastHealthCheckAt time.Time
+
+	// Used stores the number of times that this server was chosen. This is useful to determinate if
+	// this server will be chosen again in the future by the load balancer algorithm.
+	Used int
 }
 
 // defaultBalancer is the default implementation used when the library client doesn't replace the
 // Balancer attribute.
 type defaultBalancer struct {
-	// servers store the current servers grouped by priorities that are used to select based on the
-	// server weight. Every time a servers is used, it is removed to allow the next one to be chosen.
-	servers map[uint16][]Server
 }
 
 // Balance follows the algorithm described in the RFC 2782, based on the priority and weight of the
@@ -235,20 +241,13 @@ type defaultBalancer struct {
 //   are no unordered SRV RRs.  This process is repeated for each
 //   Priority.
 func (d *defaultBalancer) Balance(servers []Server) (index int) {
-	// TODO(rafaeljusto): When do we detect that the incoming servers are different from what we have
-	// stored in our struct. Remember that we are always removing servers from the internal map as we
-	// start using them
-
-	if d.servers == nil || len(d.servers) == 0 {
-		d.servers = make(map[uint16][]Server)
-
-		for _, server := range servers {
-			d.servers[server.Priority] = append(d.servers[server.Priority], server)
-		}
+	serversByPriority := make(map[uint16][]Server)
+	for _, server := range servers {
+		serversByPriority[server.Priority] = append(serversByPriority[server.Priority], server)
 	}
 
 	var priorities []int
-	for priority := range d.servers {
+	for priority := range serversByPriority {
 		priorities = append(priorities, int(priority))
 	}
 	sort.Ints(priorities)
@@ -257,37 +256,41 @@ func (d *defaultBalancer) Balance(servers []Server) (index int) {
 
 	// A client MUST attempt to contact the target host with the lowest-numbered priority it can reach
 	for _, priority := range priorities {
-		selectedServers := d.servers[uint16(priority)]
+		selectedServers := serversByPriority[uint16(priority)]
+
+		// detect the servers that weren't selected so frequently in this priority group
+		minimumUsed := -1
+		for _, server := range selectedServers {
+			if server.Used < minimumUsed || minimumUsed == -1 {
+				minimumUsed = server.Used
+			}
+		}
 
 		totalWeight := 0
-		selectedServersWeight := make([]int, len(selectedServers))
+		var selectedServersWeight []int
 
 		// compute the sum of the weights of those RRs, and with each RR
 		// associate the running sum in the selected order
-		for i, server := range selectedServers {
-			totalWeight += int(server.Weight)
-			selectedServersWeight[i] = totalWeight
+		for i := len(selectedServers) - 1; i >= 0; i-- {
+			if selectedServers[i].Used > minimumUsed {
+				selectedServers = append(selectedServers[:i], selectedServers[i+1:]...)
+				continue
+			}
+
+			totalWeight += int(selectedServers[i].Weight)
+			selectedServersWeight = append(selectedServersWeight, totalWeight)
 		}
 
 		// choose a uniform random number between 0 and the sum computed (inclusive)
 		randomNumber := randomSource.Intn(totalWeight + 1)
 
-		for i, serverWeight := range selectedServersWeight {
+		for i := len(selectedServersWeight) - 1; i >= 0; i-- {
 			// select the RR whose running sum value is the first in the selected order which is greater
 			// than or equal to the random number selected
-			if serverWeight >= randomNumber && selectedServers[i].LastHealthCheck {
+			if selectedServersWeight[i] >= randomNumber && selectedServers[i].LastHealthCheck {
 				selectedTarget = selectedServers[i].Target
-
-				// remove this SRV RR from the set of the unordered SRV RRs and apply the described
-				// algorithm to the unordered SRV RRs to select the next target host
-				selectedServers = append(selectedServers[:i], selectedServers[i+1:]...)
 				break
 			}
-		}
-
-		// if there're no more servers in the slice, remove the priority from the map
-		if len(selectedServers) == 0 {
-			delete(d.servers, uint16(priority))
 		}
 
 		if selectedTarget != "" {
@@ -295,6 +298,7 @@ func (d *defaultBalancer) Balance(servers []Server) (index int) {
 		}
 	}
 
+	// find the correct position of the selected server
 	for i, server := range servers {
 		if server.Target == selectedTarget {
 			return i
