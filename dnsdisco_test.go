@@ -284,6 +284,8 @@ func ExampleDiscover() {
 func ExampleRetrieverFunc() {
 	discovery := dnsdisco.NewDiscovery("jabber", "tcp", "registro.br")
 	discovery.Retriever = dnsdisco.RetrieverFunc(func(service, proto, name string) (servers []*net.SRV, err error) {
+		// Using a specific resolver with custom timeouts
+
 		client := dns.Client{
 			ReadTimeout:  2 * time.Second,
 			WriteTimeout: 2 * time.Second,
@@ -313,6 +315,42 @@ func ExampleRetrieverFunc() {
 		}
 
 		return
+	})
+
+	// Retrieve the servers
+	if err := discovery.Refresh(); err != nil {
+		fmt.Println(err)
+		return
+	}
+
+	target, port := discovery.Choose()
+	fmt.Printf("Target: %s\nPort: %d\n", target, port)
+
+	// Output:
+	// Target: jabber.registro.br.
+	// Port: 5269
+}
+
+func ExampleBalancerFunc() {
+	discovery := dnsdisco.NewDiscovery("jabber", "tcp", "registro.br")
+	discovery.Balancer = dnsdisco.BalancerFunc(func(servers []dnsdisco.Server) (index int) {
+		// Using a round-robin algorithm. As we don't known which server position
+		// was used in the last time, we try to select using the Used attribute.
+
+		minimum := -1
+		for _, server := range servers {
+			if server.Used < minimum || minimum == -1 {
+				minimum = server.Used
+			}
+		}
+
+		for i, server := range servers {
+			if server.Used == minimum {
+				return i
+			}
+		}
+
+		return -1
 	})
 
 	// Retrieve the servers
