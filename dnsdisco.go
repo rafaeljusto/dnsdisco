@@ -266,28 +266,30 @@ func (d *defaultBalancer) Balance(servers []Server) (index int) {
 			}
 		}
 
-		totalWeight := 0
-		var selectedServersWeight []int
-
-		// compute the sum of the weights of those RRs, and with each RR
-		// associate the running sum in the selected order
+		// remove servers that are selected frequently
 		for i := len(selectedServers) - 1; i >= 0; i-- {
 			if selectedServers[i].Used > minimumUsed {
 				selectedServers = append(selectedServers[:i], selectedServers[i+1:]...)
-				continue
 			}
+		}
 
-			totalWeight += int(selectedServers[i].Weight)
-			selectedServersWeight = append(selectedServersWeight, totalWeight)
+		totalWeight := 0
+		selectedServersWeight := make([]int, len(selectedServers))
+
+		// compute the sum of the weights of those RRs, and with each RR
+		// associate the running sum in the selected order
+		for i, server := range selectedServers {
+			totalWeight += int(server.Weight)
+			selectedServersWeight[i] = totalWeight
 		}
 
 		// choose a uniform random number between 0 and the sum computed (inclusive)
 		randomNumber := randomSource.Intn(totalWeight + 1)
 
-		for i := len(selectedServersWeight) - 1; i >= 0; i-- {
+		for i, weight := range selectedServersWeight {
 			// select the RR whose running sum value is the first in the selected order which is greater
 			// than or equal to the random number selected
-			if selectedServersWeight[i] >= randomNumber && selectedServers[i].LastHealthCheck {
+			if weight >= randomNumber && selectedServers[i].LastHealthCheck {
 				selectedTarget = selectedServers[i].Target
 				break
 			}
