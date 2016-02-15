@@ -20,8 +20,8 @@ var (
 
 // Discover is the fastest way to find a target using all the default
 // parameters. It will send a SRV query in _service._proto.name format and
-// return the first target (address and port) that passed on the health check
-// (simple connection check).
+// return the target (address and port) selected by the RFC 2782 algorithm and
+// that passed on the health check (simple connection check).
 //
 // proto must be "udp" or "tcp", otherwise an UnknownNetworkError error will be
 // returned. The library will use the local resolver to send the DNS package.
@@ -35,8 +35,7 @@ func Discover(service, proto, name string) (target string, port uint16, err erro
 	return
 }
 
-// Discovery stores all the necessary information to discover the services,
-// check if it still works and choose the best one.
+// Discovery stores all the necessary information to discover the services.
 type Discovery struct {
 	// Service is the name of the application that the library is looking for.
 	Service string
@@ -61,10 +60,8 @@ type Discovery struct {
 	// specific server.
 	HealthCheckerTTL time.Duration
 
-	// Balancer is responsible for choosing the target that will be used. It has
-	// the healthChecker as parameter to make it possible to choose only an online
-	// target. By default the library choose the first online target from the
-	// list, as it is already ordered by priority and weight.
+	// Balancer is responsible for choosing the target that will be used. By
+	// default the library choose the target based on the RFC 2782 algorithm.
 	Balancer balancer
 
 	// servers stores the retrieved servers to avoid DNS requests all the time.
@@ -73,8 +70,8 @@ type Discovery struct {
 
 // NewDiscovery builds a Discovery type with all default values. To retrieve the
 // servers it will use the net.LookupSRV (local resolver), for health check
-// will only perform a simple connection, and the chosen target will be the
-// first online one.
+// will only perform a simple connection, and the chosen target will be selected
+// using the RFC 2782 considering only online servers.
 func NewDiscovery(service, proto, name string) Discovery {
 	return Discovery{
 		Service: service,
@@ -125,9 +122,10 @@ func (d *Discovery) Refresh() error {
 }
 
 // Choose will return the best target to use based on a defined balancer. By
-// default the library choose the first online target with best priority and
-// weight. It is possible to change the balancer behaviour replacing the
-// Balancer attribute from the Discovery type.
+// default the library choose the server based on the RFC 2782 considering only
+// the online servers. It is possible to change the balancer behaviour replacing
+// the Balancer attribute from the Discovery type. If no good match is found it
+// will return a empty target and a zero port.
 func (d *Discovery) Choose() (target string, port uint16) {
 	for i, server := range d.servers {
 		if time.Now().Sub(server.lastHealthCheckAt) < d.HealthCheckerTTL {
@@ -192,8 +190,8 @@ type balancer interface {
 }
 
 // BalancerFunc is an easy-to-use implementation of the interface that is
-// responsible for choosing the best target. It returns the slice index of the chosen target or -1
-// when none was selected.
+// responsible for choosing the best target. It returns the slice index of the
+// chosen target or -1 when none was selected.
 type BalancerFunc func(servers []Server) (index int)
 
 // Balance will choose the best target.
@@ -215,18 +213,19 @@ type Server struct {
 	// to check the server every time.
 	lastHealthCheckAt time.Time
 
-	// Used stores the number of times that this server was chosen. This is useful to determinate if
-	// this server will be chosen again in the future by the load balancer algorithm.
+	// Used stores the number of times that this server was chosen. This is useful
+	// to determinate if this server will be chosen again in the future by the
+	// load balancer algorithm.
 	Used int
 }
 
-// defaultBalancer is the default implementation used when the library client doesn't replace the
-// Balancer attribute.
+// defaultBalancer is the default implementation used when the library client
+// doesn't replace the Balancer attribute.
 type defaultBalancer struct {
 }
 
-// Balance follows the algorithm described in the RFC 2782, based on the priority and weight of the
-// SRV records.
+// Balance follows the algorithm described in the RFC 2782, based on the
+// priority and weight of the SRV records.
 //
 //   Compute the sum of the weights of those RRs, and with each RR
 //   associate the running sum in the selected order. Then choose a
@@ -254,11 +253,13 @@ func (d *defaultBalancer) Balance(servers []Server) (index int) {
 
 	var selectedTarget string
 
-	// A client MUST attempt to contact the target host with the lowest-numbered priority it can reach
+	// A client MUST attempt to contact the target host with the lowest-numbered
+	// priority it can reach
 	for _, priority := range priorities {
 		selectedServers := serversByPriority[uint16(priority)]
 
-		// detect the servers that weren't selected so frequently in this priority group
+		// detect the servers that weren't selected so frequently in this priority
+		// group
 		minimumUsed := -1
 		for _, server := range selectedServers {
 			if server.Used < minimumUsed || minimumUsed == -1 {
@@ -287,8 +288,8 @@ func (d *defaultBalancer) Balance(servers []Server) (index int) {
 		randomNumber := randomSource.Intn(totalWeight + 1)
 
 		for i, weight := range selectedServersWeight {
-			// select the RR whose running sum value is the first in the selected order which is greater
-			// than or equal to the random number selected
+			// select the RR whose running sum value is the first in the selected
+			// order which is greater than or equal to the random number selected
 			if weight >= randomNumber && selectedServers[i].LastHealthCheck {
 				selectedTarget = selectedServers[i].Target
 				break
