@@ -436,6 +436,94 @@ func TestDiscoverDefaultHealthChecker(t *testing.T) {
 	}
 }
 
+func TestRefreshAsync(t *testing.T) {
+	scenarios := []struct {
+		description     string
+		service         string
+		proto           string
+		name            string
+		refreshInterval time.Duration
+		retriever       dnsdisco.RetrieverFunc
+		healthChecker   dnsdisco.HealthCheckerFunc
+		expectedTarget  string
+		expectedPort    uint16
+	}{
+		{
+			description:     "it should update the servers asynchronously",
+			service:         "jabber",
+			proto:           "tcp",
+			name:            "registro.br",
+			refreshInterval: 100 * time.Millisecond,
+			retriever: func() dnsdisco.RetrieverFunc {
+				calls := 0
+
+				return dnsdisco.RetrieverFunc(func(service, proto, name string) ([]*net.SRV, error) {
+					calls++
+					if calls == 1 {
+						return []*net.SRV{
+							&net.SRV{
+								Target:   "server1.example.com.",
+								Port:     1111,
+								Priority: 10,
+								Weight:   20,
+							},
+							&net.SRV{
+								Target:   "server2.example.com.",
+								Port:     2222,
+								Priority: 10,
+								Weight:   10,
+							},
+						}, nil
+					}
+
+					return []*net.SRV{
+						&net.SRV{
+							Target:   "server3.example.com.",
+							Port:     3333,
+							Priority: 15,
+							Weight:   20,
+						},
+						&net.SRV{
+							Target:   "server4.example.com.",
+							Port:     4444,
+							Priority: 10,
+							Weight:   10,
+						},
+					}, nil
+				})
+			}(),
+			healthChecker: dnsdisco.HealthCheckerFunc(func(target string, port uint16, proto string) (ok bool, err error) {
+				return true, nil
+			}),
+			expectedTarget: "server4.example.com.",
+			expectedPort:   4444,
+		},
+	}
+
+	for i, item := range scenarios {
+		discovery := dnsdisco.NewDiscovery(item.service, item.proto, item.name)
+		discovery.Retriever = item.retriever
+		discovery.HealthChecker = item.healthChecker
+
+		finish := discovery.RefreshAsync(item.refreshInterval)
+		time.Sleep(item.refreshInterval + (100 * time.Millisecond))
+
+		target, port := discovery.Choose()
+
+		if target != item.expectedTarget {
+			t.Errorf("scenario %d, “%s”: mismatch targets. Expecting: “%s”; found “%s”",
+				i, item.description, item.expectedTarget, target)
+		}
+
+		if port != item.expectedPort {
+			t.Errorf("scenario %d, “%s”: mismatch ports. Expecting: “%d”; found “%d”",
+				i, item.description, item.expectedPort, port)
+		}
+
+		close(finish)
+	}
+}
+
 func ExampleDiscover() {
 	target, port, err := dnsdisco.Discover("jabber", "tcp", "registro.br")
 	if err != nil {
@@ -561,6 +649,25 @@ func ExampleHealthCheckerFunc() {
 	// Output:
 	// Target: www.pantz.org.
 	// Port: 80
+}
+
+func ExampleRefreshAsync() {
+	discovery := dnsdisco.NewDiscovery("jabber", "tcp", "registro.br")
+
+	// refresh the SRV records every 100 milliseconds
+	stopRefresh := discovery.RefreshAsync(100 * time.Millisecond)
+	time.Sleep(2 * time.Second)
+
+	// TODO(rafaeljusto): As the DNS resolver RTT will differ we cannot assume the
+	// same sleeping. We need to think on a better example.
+
+	target, port := discovery.Choose()
+	fmt.Printf("Target: %s\nPort: %d\n", target, port)
+	close(stopRefresh)
+
+	// Output:
+	// Target: jabber.registro.br.
+	// Port: 5269
 }
 
 func BenchmarkBalancer(b *testing.B) {

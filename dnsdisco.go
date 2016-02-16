@@ -5,6 +5,7 @@ import (
 	"math/rand"
 	"net"
 	"sort"
+	"sync"
 	"time"
 )
 
@@ -66,14 +67,18 @@ type Discovery struct {
 
 	// servers stores the retrieved servers to avoid DNS requests all the time.
 	servers []Server
+
+	// serversLock make the servers attribute go routine safe for the asynchronous
+	// updates.
+	serversLock sync.Mutex
 }
 
 // NewDiscovery builds a Discovery type with all default values. To retrieve the
 // servers it will use the net.LookupSRV (local resolver), for health check
 // will only perform a simple connection, and the chosen target will be selected
 // using the RFC 2782 considering only online servers.
-func NewDiscovery(service, proto, name string) Discovery {
-	return Discovery{
+func NewDiscovery(service, proto, name string) *Discovery {
+	return &Discovery{
 		Service: service,
 		Name:    name,
 		Proto:   proto,
@@ -111,6 +116,9 @@ func (d *Discovery) Refresh() error {
 		return err
 	}
 
+	d.serversLock.Lock()
+	defer d.serversLock.Unlock()
+
 	d.servers = nil
 	for _, srv := range servers {
 		d.servers = append(d.servers, Server{
@@ -121,12 +129,39 @@ func (d *Discovery) Refresh() error {
 	return nil
 }
 
+// RefreshAsync works exactly as Refresh, but is non-blocking and will repeat
+// the action on every interval. To stop the refresh the returned channel must
+// be closed.
+func (d *Discovery) RefreshAsync(interval time.Duration) chan<- bool {
+	finish := make(chan bool)
+
+	go func() {
+		for {
+			if err := d.Refresh(); err != nil {
+				// TODO(rafaeljusto): What are we going to do with this error? Maybe a new
+				// method Error() that will get all asynchronous problems?
+			}
+
+			select {
+			case <-finish:
+				return
+			case <-time.Tick(interval):
+			}
+		}
+	}()
+
+	return finish
+}
+
 // Choose will return the best target to use based on a defined balancer. By
 // default the library choose the server based on the RFC 2782 considering only
 // the online servers. It is possible to change the balancer behaviour replacing
 // the Balancer attribute from the Discovery type. If no good match is found it
 // will return a empty target and a zero port.
 func (d *Discovery) Choose() (target string, port uint16) {
+	d.serversLock.Lock()
+	defer d.serversLock.Unlock()
+
 	for i, server := range d.servers {
 		if time.Now().Sub(server.lastHealthCheckAt) < d.HealthCheckerTTL {
 			continue
