@@ -3,6 +3,7 @@ package dnsdisco_test
 import (
 	"fmt"
 	"net"
+	"net/http"
 	"reflect"
 	"strconv"
 	"strings"
@@ -533,6 +534,33 @@ func ExampleBalancerFunc() {
 	// Output:
 	// Target: jabber.registro.br.
 	// Port: 5269
+}
+
+func ExampleHealthCheckerFunc() {
+	discovery := dnsdisco.NewDiscovery("http", "tcp", "pantz.org")
+	discovery.HealthChecker = dnsdisco.HealthCheckerFunc(func(target string, port uint16, proto string) (ok bool, err error) {
+		// Testing HTTP fetching the homepage and checking the HTTP status code.
+
+		response, err := http.Get("http://www.pantz.org")
+		if err != nil {
+			return false, err
+		}
+
+		return response.StatusCode == http.StatusOK, nil
+	})
+
+	// Retrieve the servers
+	if err := discovery.Refresh(); err != nil {
+		fmt.Println(err)
+		return
+	}
+
+	target, port := discovery.Choose()
+	fmt.Printf("Target: %s\nPort: %d\n", target, port)
+
+	// Output:
+	// Target: www.pantz.org.
+	// Port: 80
 }
 
 func BenchmarkBalancer(b *testing.B) {
