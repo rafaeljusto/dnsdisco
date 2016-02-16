@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"net"
 	"reflect"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -277,15 +278,150 @@ func TestDiscoverDefaultBalancer(t *testing.T) {
 
 		if err := discovery.Refresh(); err != nil {
 			t.Errorf("scenario %d, “%s”: unexpected error while retrieving DNS records. Details: %s",
-				i, item.description, item.expectedTarget, err)
+				i, item.description, err)
 		}
 
 		var target string
 		var port uint16
 
-		for i := 0; i <= item.rerun; i++ {
+		for j := 0; j <= item.rerun; j++ {
 			target, port = discovery.Choose()
 		}
+
+		if target != item.expectedTarget {
+			t.Errorf("scenario %d, “%s”: mismatch targets. Expecting: “%s”; found “%s”",
+				i, item.description, item.expectedTarget, target)
+		}
+
+		if port != item.expectedPort {
+			t.Errorf("scenario %d, “%s”: mismatch ports. Expecting: “%d”; found “%d”",
+				i, item.description, item.expectedPort, port)
+		}
+	}
+}
+
+func TestDiscoverDefaultHealthChecker(t *testing.T) {
+	ln, err := startTCPTestServer()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer ln.Close()
+
+	testServerHost, p, err := net.SplitHostPort(ln.Addr().String())
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	testServerPort, err := strconv.ParseUint(p, 10, 16)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	scenarios := []struct {
+		description    string
+		service        string
+		proto          string
+		name           string
+		retriever      dnsdisco.RetrieverFunc
+		balancer       dnsdisco.BalancerFunc
+		expectedTarget string
+		expectedPort   uint16
+		expectedError  error
+	}{
+		{
+			description: "it should identify a healthy server",
+			service:     "jabber",
+			proto:       "tcp",
+			name:        "registro.br",
+			retriever: dnsdisco.RetrieverFunc(func(service, proto, name string) ([]*net.SRV, error) {
+				return []*net.SRV{
+					&net.SRV{
+						Target:   testServerHost,
+						Port:     uint16(testServerPort),
+						Priority: 10,
+						Weight:   20,
+					},
+				}, nil
+			}),
+			balancer: dnsdisco.BalancerFunc(func(servers []dnsdisco.Server) (index int) {
+				for i, server := range servers {
+					if server.LastHealthCheck {
+						return i
+					}
+				}
+
+				return -1
+			}),
+			expectedTarget: testServerHost,
+			expectedPort:   uint16(testServerPort),
+		},
+		{
+			description: "it should fail when it's not a valid proto",
+			service:     "jabber",
+			proto:       "xxx",
+			name:        "registro.br",
+			retriever: dnsdisco.RetrieverFunc(func(service, proto, name string) ([]*net.SRV, error) {
+				return []*net.SRV{
+					&net.SRV{
+						Target:   testServerHost,
+						Port:     uint16(testServerPort),
+						Priority: 10,
+						Weight:   20,
+					},
+				}, nil
+			}),
+			balancer: dnsdisco.BalancerFunc(func(servers []dnsdisco.Server) (index int) {
+				for i, server := range servers {
+					if server.LastHealthCheck {
+						return i
+					}
+				}
+
+				return -1
+			}),
+			expectedTarget: "",
+			expectedPort:   0,
+		},
+		{
+			description: "it should fail to connect to an unknown server",
+			service:     "jabber",
+			proto:       "tcp",
+			name:        "registro.br",
+			retriever: dnsdisco.RetrieverFunc(func(service, proto, name string) ([]*net.SRV, error) {
+				return []*net.SRV{
+					&net.SRV{
+						Target:   "idontexist.example.com.",
+						Port:     uint16(testServerPort),
+						Priority: 10,
+						Weight:   20,
+					},
+				}, nil
+			}),
+			balancer: dnsdisco.BalancerFunc(func(servers []dnsdisco.Server) (index int) {
+				for i, server := range servers {
+					if server.LastHealthCheck {
+						return i
+					}
+				}
+
+				return -1
+			}),
+			expectedTarget: "",
+			expectedPort:   0,
+		},
+	}
+
+	for i, item := range scenarios {
+		discovery := dnsdisco.NewDiscovery(item.service, item.proto, item.name)
+		discovery.Retriever = item.retriever
+		discovery.Balancer = item.balancer
+
+		if err := discovery.Refresh(); err != nil {
+			t.Errorf("scenario %d, “%s”: unexpected error while retrieving DNS records. Details: %s",
+				i, item.description, err)
+		}
+
+		target, port := discovery.Choose()
 
 		if target != item.expectedTarget {
 			t.Errorf("scenario %d, “%s”: mismatch targets. Expecting: “%s”; found “%s”",
@@ -449,4 +585,36 @@ func BenchmarkBalancer(b *testing.B) {
 	for i := 0; i < b.N; i++ {
 		discovery.Choose()
 	}
+}
+
+// startTCPTestServer initialize a TCP echo server running on any available port
+// of the localhost. The returning listener must be closed to terminate the
+// server.
+func startTCPTestServer() (net.Listener, error) {
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		return nil, err
+	}
+
+	go func() {
+		for {
+			c, err := ln.Accept()
+			if err != nil {
+				break
+			}
+			// Server connection.
+			go func(c net.Conn) {
+				defer c.Close()
+				buf := make([]byte, 1024)
+
+				n, err := c.Read(buf)
+				if err != nil {
+					return
+				}
+				c.Write(buf[:n])
+			}(c)
+		}
+	}()
+
+	return ln, nil
 }
