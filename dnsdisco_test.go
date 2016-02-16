@@ -203,6 +203,38 @@ func TestDiscoverDefaultBalancer(t *testing.T) {
 			expectedPort:   2222,
 		},
 		{
+			description: "it should retrieve the target correctly (same target different port)",
+			service:     "jabber",
+			proto:       "tcp",
+			name:        "registro.br",
+			retriever: dnsdisco.RetrieverFunc(func(service, proto, name string) ([]*net.SRV, error) {
+				return []*net.SRV{
+					&net.SRV{
+						Target:   "server1.example.com.",
+						Port:     1111,
+						Priority: 10,
+						Weight:   0,
+					},
+					&net.SRV{
+						Target:   "server1.example.com.",
+						Port:     2222,
+						Priority: 10,
+						Weight:   200,
+					},
+				}, nil
+			}),
+			healthChecker: dnsdisco.HealthCheckerFunc(func(target string, port uint16, proto string) (ok bool, err error) {
+				switch target {
+				case "server1.example.com.":
+					return true, nil
+				}
+
+				return false, nil
+			}),
+			expectedTarget: "server1.example.com.",
+			expectedPort:   2222,
+		},
+		{
 			description: "it should not select any target",
 			service:     "jabber",
 			proto:       "tcp",
@@ -365,4 +397,56 @@ func ExampleBalancerFunc() {
 	// Output:
 	// Target: jabber.registro.br.
 	// Port: 5269
+}
+
+func BenchmarkBalancer(b *testing.B) {
+	discovery := dnsdisco.NewDiscovery("jabber", "tcp", "registro.br")
+	discovery.HealthChecker = dnsdisco.HealthCheckerFunc(func(target string, port uint16, proto string) (ok bool, err error) {
+		return true, nil
+	})
+
+	discovery.Retriever = dnsdisco.RetrieverFunc(func(service, proto, name string) ([]*net.SRV, error) {
+		return []*net.SRV{
+			&net.SRV{
+				Target:   "server1.example.com.",
+				Port:     1111,
+				Weight:   10,
+				Priority: 20,
+			},
+			&net.SRV{
+				Target:   "server2.example.com.",
+				Port:     2222,
+				Weight:   70,
+				Priority: 10,
+			},
+			&net.SRV{
+				Target:   "server3.example.com.",
+				Port:     3333,
+				Weight:   100,
+				Priority: 20,
+			},
+			&net.SRV{
+				Target:   "server4.example.com.",
+				Port:     4444,
+				Weight:   1,
+				Priority: 15,
+			},
+			&net.SRV{
+				Target:   "server5.example.com.",
+				Port:     5555,
+				Weight:   40,
+				Priority: 60,
+			},
+		}, nil
+	})
+
+	// Retrieve the servers
+	if err := discovery.Refresh(); err != nil {
+		fmt.Println(err)
+		return
+	}
+
+	for i := 0; i < b.N; i++ {
+		discovery.Choose()
+	}
 }

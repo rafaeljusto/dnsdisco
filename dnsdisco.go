@@ -251,7 +251,7 @@ func (d *defaultBalancer) Balance(servers []Server) (index int) {
 	}
 	sort.Ints(priorities)
 
-	var selectedTarget string
+	var selectedServer *Server
 
 	// A client MUST attempt to contact the target host with the lowest-numbered
 	// priority it can reach
@@ -291,20 +291,22 @@ func (d *defaultBalancer) Balance(servers []Server) (index int) {
 			// select the RR whose running sum value is the first in the selected
 			// order which is greater than or equal to the random number selected
 			if weight >= randomNumber && selectedServers[i].LastHealthCheck {
-				selectedTarget = selectedServers[i].Target
+				selectedServer = &selectedServers[i]
 				break
 			}
 		}
 
-		if selectedTarget != "" {
+		if selectedServer != nil {
 			break
 		}
 	}
 
 	// find the correct position of the selected server
-	for i, server := range servers {
-		if server.Target == selectedTarget {
-			return i
+	if selectedServer != nil {
+		for i, server := range servers {
+			if server == *selectedServer {
+				return i
+			}
 		}
 	}
 
