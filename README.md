@@ -3,7 +3,7 @@ dnsdisco
 
 [![Build Status](https://travis-ci.org/rafaeljusto/dnsdisco.png?branch=master)](https://travis-ci.org/rafaeljusto/dnsdisco)
 [![GoDoc](https://godoc.org/github.com/rafaeljusto/dnsdisco?status.png)](https://godoc.org/github.com/rafaeljusto/dnsdisco)
-[![Coverage Status](https://coveralls.io/repos/rafaeljusto/dnsdisco/badge.svg?branch=master&service=github)](https://coveralls.io/github/rafaeljusto/dnsdisco?branch=master)
+[![Coverage Status](https://coveralls.io/repos/github/rafaeljusto/dnsdisco/badge.svg?branch=master)](https://coveralls.io/github/rafaeljusto/dnsdisco?branch=master)
 
 **DNS** service **disco**very library contains the following features:
 
