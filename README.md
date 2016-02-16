@@ -11,6 +11,7 @@ dnsdisco
 * Each server is verified with a health check (simple connection test)
 * Load balancer choose the best server to send the request (RFC 2782 algorithm)
 * Library is flexible so you could change any part with your own implementation
+* Has only standard library dependencies (except for tests)
 
 A basic use would be:
 
