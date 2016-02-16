@@ -1,6 +1,7 @@
 dnsdisco
 ========
 
+[![Build Status](https://travis-ci.org/rafaeljusto/dnsdisco.png?branch=master)](https://travis-ci.org/rafaeljusto/dnsdisco)
 [![GoDoc](https://godoc.org/github.com/rafaeljusto/dnsdisco?status.png)](https://godoc.org/github.com/rafaeljusto/dnsdisco)
 
 **DNS** service **disco**very library contains the following features:
