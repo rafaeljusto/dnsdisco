@@ -3,11 +3,15 @@ language: go
 go:
   - tip
 
+env:
+  global:
+    - secure: "CI17/13C1JD1BHAjO107tuAKvBMhRHzLqiw+I5HuaA2fnkOCh7q2/t5uxA8Z1Zda/j5kligaRRGX8CV57sohle8Sgad+mGCHV0lAF5ni7yaN9rYrwUSgHDrys2zZiBq6g1osyhYs/EEbqtE/q37fFw4kgmf2j9rGF6AokVMUs+4qoB+EBKhWwcMcFXkAFPKxJ3X6T91N6QoQfhHUgdySjv2s6AmdvouQpYcM8+FzV9GlmXs9REATp7n7dYQbRRhnl0VmZWAmc5aY9XjVeNE+8imbVF3Mwk3hzW2se18G0gFIEM2JQWa6BJ49tVSP277IwFfrVp+SMW0m7GkKT9L83EaYcwmWzAAs1yqVf1m8eQlSLfQZP8v33q+aBi+PNq0inLsZ4ajEFg0Wi7XSF+V16bu4uJB7zyvSS+lDcbXREGJabblFOuPYVoW9sYjByKrYANhyNP0ySpXeBQQPRWPBXG9JjHX7yqFdAAvIrPqrJN5//RAcP3/dzDqTObmBJrtUI2eOdWciZmY/Qoi/hLUn3QmsSopV0h3bMA5Nl7ZH6FA5c7lbg5rbchEITZSAO0Ub44ANL2YrCjApqh05LuLObeud6If6Sg3094DxRZvk7FgrD7S61f08LSt7gkgVRT38lnQnQngEynhGiX2DA8/TyRWSJ0iXKNfQ15mwlpDapoA="
+
 install:
   - go get github.com/miekg/dns
 
 script:
-  - go test
+  - go test -v -covermode=count -coverprofile=coverage.out && $HOME/gopath/bin/goveralls -coverprofile=coverage.out -service=travis-ci -repotoken $COVERALLS_TOKEN
 
 notifications:
   email:
