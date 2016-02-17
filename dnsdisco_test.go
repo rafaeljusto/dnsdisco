@@ -584,11 +584,42 @@ func ExampleDiscover() {
 	// Port: 5269
 }
 
+func ExampleDiscovery_RefreshAsync() {
+	discovery := dnsdisco.NewDiscovery("jabber", "tcp", "registro.br")
+
+	// depending on where this examples run the retrieving time differs (DNS RTT),
+	// so as we cannot sleep a deterministic period, to make this test more useful
+	// we are creating a channel to alert the main go routine that we got an
+	// answer from the network
+	retrieved := make(chan bool)
+
+	discovery.Retriever = dnsdisco.RetrieverFunc(func(service, proto, name string) (servers []*net.SRV, err error) {
+		_, servers, err = net.LookupSRV(service, proto, name)
+		retrieved <- true
+		return
+	})
+
+	// refresh the SRV records every 100 milliseconds
+	stopRefresh := discovery.RefreshAsync(100 * time.Millisecond)
+	<-retrieved
+
+	// sleep for a short period only to allow the library to process the SRV
+	// records retrieved from the network
+	time.Sleep(100 * time.Millisecond)
+
+	target, port := discovery.Choose()
+	fmt.Printf("Target: %s\nPort: %d\n", target, port)
+	close(stopRefresh)
+
+	// Output:
+	// Target: jabber.registro.br.
+	// Port: 5269
+}
+
+// ExampleRetrieverFunc uses a specific resolver with custom timeouts
 func ExampleRetrieverFunc() {
 	discovery := dnsdisco.NewDiscovery("jabber", "tcp", "registro.br")
 	discovery.Retriever = dnsdisco.RetrieverFunc(func(service, proto, name string) (servers []*net.SRV, err error) {
-		// Using a specific resolver with custom timeouts
-
 		client := dns.Client{
 			ReadTimeout:  2 * time.Second,
 			WriteTimeout: 2 * time.Second,
@@ -634,12 +665,12 @@ func ExampleRetrieverFunc() {
 	// Port: 5269
 }
 
+// ExampleBalancerFunc uses a round-robin algorithm. As we don't known which
+// server position was used in the last time, we try to select using the Used
+// attribute.
 func ExampleBalancerFunc() {
 	discovery := dnsdisco.NewDiscovery("jabber", "tcp", "registro.br")
 	discovery.Balancer = dnsdisco.BalancerFunc(func(servers []dnsdisco.Server) (index int) {
-		// Using a round-robin algorithm. As we don't known which server position
-		// was used in the last time, we try to select using the Used attribute.
-
 		minimum := -1
 		for _, server := range servers {
 			if server.Used < minimum || minimum == -1 {
@@ -670,11 +701,11 @@ func ExampleBalancerFunc() {
 	// Port: 5269
 }
 
+// ExampleHealthCheckerFunc tests HTTP fetching the homepage and checking the
+// HTTP status code.
 func ExampleHealthCheckerFunc() {
 	discovery := dnsdisco.NewDiscovery("http", "tcp", "pantz.org")
 	discovery.HealthChecker = dnsdisco.HealthCheckerFunc(func(target string, port uint16, proto string) (ok bool, err error) {
-		// Testing HTTP fetching the homepage and checking the HTTP status code.
-
 		response, err := http.Get("http://www.pantz.org")
 		if err != nil {
 			return false, err
@@ -695,38 +726,6 @@ func ExampleHealthCheckerFunc() {
 	// Output:
 	// Target: www.pantz.org.
 	// Port: 80
-}
-
-func ExampleRefreshAsync() {
-	discovery := dnsdisco.NewDiscovery("jabber", "tcp", "registro.br")
-
-	// depending on where this examples run the retrieving time differs (DNS RTT),
-	// so as we cannot sleep a deterministic period, to make this test more useful
-	// we are creating a channel to alert the main go routine that we got an
-	// answer from the network
-	retrieved := make(chan bool)
-
-	discovery.Retriever = dnsdisco.RetrieverFunc(func(service, proto, name string) (servers []*net.SRV, err error) {
-		_, servers, err = net.LookupSRV(service, proto, name)
-		retrieved <- true
-		return
-	})
-
-	// refresh the SRV records every 100 milliseconds
-	stopRefresh := discovery.RefreshAsync(100 * time.Millisecond)
-	<-retrieved
-
-	// sleep for a short period only to allow the library to process the SRV
-	// records retrieved from the network
-	time.Sleep(100 * time.Millisecond)
-
-	target, port := discovery.Choose()
-	fmt.Printf("Target: %s\nPort: %d\n", target, port)
-	close(stopRefresh)
-
-	// Output:
-	// Target: jabber.registro.br.
-	// Port: 5269
 }
 
 func BenchmarkBalancer(b *testing.B) {
