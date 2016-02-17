@@ -4,6 +4,7 @@ dnsdisco
 [![Build Status](https://travis-ci.org/rafaeljusto/dnsdisco.png?branch=master)](https://travis-ci.org/rafaeljusto/dnsdisco)
 [![GoDoc](https://godoc.org/github.com/rafaeljusto/dnsdisco?status.png)](https://godoc.org/github.com/rafaeljusto/dnsdisco)
 [![Coverage Status](https://coveralls.io/repos/github/rafaeljusto/dnsdisco/badge.svg?branch=master)](https://coveralls.io/github/rafaeljusto/dnsdisco?branch=master)
+[![Go Report Card](https://goreportcard.com/badge/github.com/rafaeljusto/dnsdisco)](https://goreportcard.com/report/github.com/rafaeljusto/dnsdisco)
 
 **DNS** service **disco**very library.
 
@@ -76,8 +77,8 @@ func main() {
 }
 ```
 
-For this example we imagine that the domain "registro.br." is configured as the
-following:
+For this example we imagine that the domain **registro.br.** is configured as
+the following:
 
 ```dns
 registro.br.    172800 IN SOA a.dns.br. hostmaster.registro.br. (
