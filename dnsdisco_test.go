@@ -92,13 +92,13 @@ func TestDiscoverDefaultBalancer(t *testing.T) {
 			name:        "registro.br",
 			retriever: dnsdisco.RetrieverFunc(func(service, proto, name string) ([]*net.SRV, error) {
 				return []*net.SRV{
-					&net.SRV{
+					{
 						Target:   "server1.example.com.",
 						Port:     1111,
 						Priority: 10,
 						Weight:   20,
 					},
-					&net.SRV{
+					{
 						Target:   "server2.example.com.",
 						Port:     2222,
 						Priority: 10,
@@ -126,25 +126,25 @@ func TestDiscoverDefaultBalancer(t *testing.T) {
 			name:        "registro.br",
 			retriever: dnsdisco.RetrieverFunc(func(service, proto, name string) ([]*net.SRV, error) {
 				return []*net.SRV{
-					&net.SRV{
+					{
 						Target:   "server1.example.com.",
 						Port:     1111,
 						Priority: 10,
 						Weight:   20,
 					},
-					&net.SRV{
+					{
 						Target:   "server2.example.com.",
 						Port:     2222,
 						Priority: 10,
 						Weight:   10,
 					},
-					&net.SRV{
+					{
 						Target:   "server3.example.com.",
 						Port:     3333,
 						Priority: 20,
 						Weight:   20,
 					},
-					&net.SRV{
+					{
 						Target:   "server4.example.com.",
 						Port:     4444,
 						Priority: 20,
@@ -176,13 +176,13 @@ func TestDiscoverDefaultBalancer(t *testing.T) {
 			name:        "registro.br",
 			retriever: dnsdisco.RetrieverFunc(func(service, proto, name string) ([]*net.SRV, error) {
 				return []*net.SRV{
-					&net.SRV{
+					{
 						Target:   "server1.example.com.",
 						Port:     1111,
 						Priority: 10,
 						Weight:   200,
 					},
-					&net.SRV{
+					{
 						Target:   "server2.example.com.",
 						Port:     2222,
 						Priority: 10,
@@ -211,13 +211,13 @@ func TestDiscoverDefaultBalancer(t *testing.T) {
 			name:        "registro.br",
 			retriever: dnsdisco.RetrieverFunc(func(service, proto, name string) ([]*net.SRV, error) {
 				return []*net.SRV{
-					&net.SRV{
+					{
 						Target:   "server1.example.com.",
 						Port:     1111,
 						Priority: 10,
 						Weight:   0,
 					},
-					&net.SRV{
+					{
 						Target:   "server1.example.com.",
 						Port:     2222,
 						Priority: 10,
@@ -243,13 +243,13 @@ func TestDiscoverDefaultBalancer(t *testing.T) {
 			name:        "registro.br",
 			retriever: dnsdisco.RetrieverFunc(func(service, proto, name string) ([]*net.SRV, error) {
 				return []*net.SRV{
-					&net.SRV{
+					{
 						Target:   "server1.example.com.",
 						Port:     1111,
 						Priority: 10,
 						Weight:   200,
 					},
-					&net.SRV{
+					{
 						Target:   "server2.example.com.",
 						Port:     2222,
 						Priority: 10,
@@ -336,7 +336,7 @@ func TestDiscoverDefaultHealthChecker(t *testing.T) {
 			name:        "registro.br",
 			retriever: dnsdisco.RetrieverFunc(func(service, proto, name string) ([]*net.SRV, error) {
 				return []*net.SRV{
-					&net.SRV{
+					{
 						Target:   testServerHost,
 						Port:     uint16(testServerPort),
 						Priority: 10,
@@ -363,7 +363,7 @@ func TestDiscoverDefaultHealthChecker(t *testing.T) {
 			name:        "registro.br",
 			retriever: dnsdisco.RetrieverFunc(func(service, proto, name string) ([]*net.SRV, error) {
 				return []*net.SRV{
-					&net.SRV{
+					{
 						Target:   testServerHost,
 						Port:     uint16(testServerPort),
 						Priority: 10,
@@ -390,7 +390,7 @@ func TestDiscoverDefaultHealthChecker(t *testing.T) {
 			name:        "registro.br",
 			retriever: dnsdisco.RetrieverFunc(func(service, proto, name string) ([]*net.SRV, error) {
 				return []*net.SRV{
-					&net.SRV{
+					{
 						Target:   "idontexist.example.com.",
 						Port:     uint16(testServerPort),
 						Priority: 10,
@@ -462,13 +462,13 @@ func TestRefreshAsync(t *testing.T) {
 					calls++
 					if calls == 1 {
 						return []*net.SRV{
-							&net.SRV{
+							{
 								Target:   "server1.example.com.",
 								Port:     1111,
 								Priority: 10,
 								Weight:   20,
 							},
-							&net.SRV{
+							{
 								Target:   "server2.example.com.",
 								Port:     2222,
 								Priority: 10,
@@ -478,13 +478,13 @@ func TestRefreshAsync(t *testing.T) {
 					}
 
 					return []*net.SRV{
-						&net.SRV{
+						{
 							Target:   "server3.example.com.",
 							Port:     3333,
 							Priority: 15,
 							Weight:   20,
 						},
-						&net.SRV{
+						{
 							Target:   "server4.example.com.",
 							Port:     4444,
 							Priority: 10,
@@ -512,13 +512,13 @@ func TestRefreshAsync(t *testing.T) {
 					calls++
 					if calls == 1 {
 						return []*net.SRV{
-							&net.SRV{
+							{
 								Target:   "server1.example.com.",
 								Port:     1111,
 								Priority: 10,
 								Weight:   100,
 							},
-							&net.SRV{
+							{
 								Target:   "server2.example.com.",
 								Port:     2222,
 								Priority: 10,
@@ -736,31 +736,31 @@ func BenchmarkBalancer(b *testing.B) {
 
 	discovery.Retriever = dnsdisco.RetrieverFunc(func(service, proto, name string) ([]*net.SRV, error) {
 		return []*net.SRV{
-			&net.SRV{
+			{
 				Target:   "server1.example.com.",
 				Port:     1111,
 				Weight:   10,
 				Priority: 20,
 			},
-			&net.SRV{
+			{
 				Target:   "server2.example.com.",
 				Port:     2222,
 				Weight:   70,
 				Priority: 10,
 			},
-			&net.SRV{
+			{
 				Target:   "server3.example.com.",
 				Port:     3333,
 				Weight:   100,
 				Priority: 20,
 			},
-			&net.SRV{
+			{
 				Target:   "server4.example.com.",
 				Port:     4444,
 				Weight:   1,
 				Priority: 15,
 			},
-			&net.SRV{
+			{
 				Target:   "server5.example.com.",
 				Port:     5555,
 				Weight:   40,
