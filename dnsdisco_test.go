@@ -447,6 +447,7 @@ func TestRefreshAsync(t *testing.T) {
 		healthChecker   dnsdisco.HealthCheckerFunc
 		expectedTarget  string
 		expectedPort    uint16
+		expectedErrors  []error
 	}{
 		{
 			description:     "it should update the servers asynchronously",
@@ -498,6 +499,46 @@ func TestRefreshAsync(t *testing.T) {
 			expectedTarget: "server4.example.com.",
 			expectedPort:   4444,
 		},
+		{
+			description:     "it should fail to retrieve the SRV records",
+			service:         "jabber",
+			proto:           "tcp",
+			name:            "registro.br",
+			refreshInterval: 100 * time.Millisecond,
+			retriever: func() dnsdisco.RetrieverFunc {
+				calls := 0
+
+				return dnsdisco.RetrieverFunc(func(service, proto, name string) ([]*net.SRV, error) {
+					calls++
+					if calls == 1 {
+						return []*net.SRV{
+							&net.SRV{
+								Target:   "server1.example.com.",
+								Port:     1111,
+								Priority: 10,
+								Weight:   100,
+							},
+							&net.SRV{
+								Target:   "server2.example.com.",
+								Port:     2222,
+								Priority: 10,
+								Weight:   0,
+							},
+						}, nil
+					}
+
+					return nil, net.UnknownNetworkError("test")
+				})
+			}(),
+			healthChecker: dnsdisco.HealthCheckerFunc(func(target string, port uint16, proto string) (ok bool, err error) {
+				return true, nil
+			}),
+			expectedTarget: "server1.example.com.",
+			expectedPort:   1111,
+			expectedErrors: []error{
+				net.UnknownNetworkError("test"),
+			},
+		},
 	}
 
 	for i, item := range scenarios {
@@ -518,6 +559,11 @@ func TestRefreshAsync(t *testing.T) {
 		if port != item.expectedPort {
 			t.Errorf("scenario %d, “%s”: mismatch ports. Expecting: “%d”; found “%d”",
 				i, item.description, item.expectedPort, port)
+		}
+
+		if errs := discovery.Errors(); !reflect.DeepEqual(errs, item.expectedErrors) {
+			t.Errorf("scenario %d, “%s”: mismatch errors. Expecting: “%#v”; found “%#v”",
+				i, item.description, item.expectedErrors, errs)
 		}
 
 		close(finish)
@@ -654,12 +700,25 @@ func ExampleHealthCheckerFunc() {
 func ExampleRefreshAsync() {
 	discovery := dnsdisco.NewDiscovery("jabber", "tcp", "registro.br")
 
+	// depending on where this examples run the retrieving time differs (DNS RTT),
+	// so as we cannot sleep a deterministic period, to make this test more useful
+	// we are creating a channel to alert the main go routine that we got an
+	// answer from the network
+	retrieved := make(chan bool)
+
+	discovery.Retriever = dnsdisco.RetrieverFunc(func(service, proto, name string) (servers []*net.SRV, err error) {
+		_, servers, err = net.LookupSRV(service, proto, name)
+		retrieved <- true
+		return
+	})
+
 	// refresh the SRV records every 100 milliseconds
 	stopRefresh := discovery.RefreshAsync(100 * time.Millisecond)
-	time.Sleep(2 * time.Second)
+	<-retrieved
 
-	// TODO(rafaeljusto): As the DNS resolver RTT will differ we cannot assume the
-	// same sleeping. We need to think on a better example.
+	// sleep for a short period only to allow the library to process the SRV
+	// records retrieved from the network
+	time.Sleep(100 * time.Millisecond)
 
 	target, port := discovery.Choose()
 	fmt.Printf("Target: %s\nPort: %d\n", target, port)
