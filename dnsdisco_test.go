@@ -258,13 +258,6 @@ func TestDiscoverDefaultBalancer(t *testing.T) {
 				}, nil
 			}),
 			healthChecker: dnsdisco.HealthCheckerFunc(func(target string, port uint16, proto string) (ok bool, err error) {
-				switch target {
-				case "server1.example.com.":
-					return false, nil
-				case "server2.example.com.":
-					return false, nil
-				}
-
 				return false, nil
 			}),
 			expectedTarget: "",

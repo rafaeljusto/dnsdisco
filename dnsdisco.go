@@ -293,23 +293,12 @@ type defaultBalancer struct {
 //   are no unordered SRV RRs.  This process is repeated for each
 //   Priority.
 func (d *defaultBalancer) Balance(servers []Server) (index int) {
-	serversByPriority := make(map[uint16][]Server)
-	for _, server := range servers {
-		serversByPriority[server.Priority] = append(serversByPriority[server.Priority], server)
-	}
-
-	var priorities []int
-	for priority := range serversByPriority {
-		priorities = append(priorities, int(priority))
-	}
-	sort.Ints(priorities)
-
-	var selectedServer *Server
+	serversByPriority, priorities := groupServersByPriority(servers)
 
 	// A client MUST attempt to contact the target host with the lowest-numbered
 	// priority it can reach
 	for _, priority := range priorities {
-		selectedServers := serversByPriority[uint16(priority)]
+		selectedServers := serversByPriority[priority]
 
 		// detect the servers that weren't selected so frequently in this priority
 		// group
@@ -327,7 +316,7 @@ func (d *defaultBalancer) Balance(servers []Server) (index int) {
 			}
 		}
 
-		totalWeight := 0
+		var totalWeight int
 		selectedServersWeight := make([]int, len(selectedServers))
 
 		// compute the sum of the weights of those RRs, and with each RR
@@ -343,25 +332,41 @@ func (d *defaultBalancer) Balance(servers []Server) (index int) {
 		for i, weight := range selectedServersWeight {
 			// select the RR whose running sum value is the first in the selected
 			// order which is greater than or equal to the random number selected
-			if weight >= randomNumber && selectedServers[i].LastHealthCheck {
-				selectedServer = &selectedServers[i]
-				break
+			if weight < randomNumber || !selectedServers[i].LastHealthCheck {
+				continue
 			}
-		}
 
-		if selectedServer != nil {
-			break
-		}
-	}
-
-	// find the correct position of the selected server
-	if selectedServer != nil {
-		for i, server := range servers {
-			if server == *selectedServer {
-				return i
+			// find the correct position of the selected server
+			for j, server := range servers {
+				if server == selectedServers[i] {
+					return j
+				}
 			}
 		}
 	}
 
 	return -1
+}
+
+// groupServersByPriority group the servers by priority, and also sort all
+// unique priorities for a sorted access.
+func groupServersByPriority(servers []Server) (map[uint16][]Server, []uint16) {
+	serversByPriority := make(map[uint16][]Server)
+	for _, server := range servers {
+		serversByPriority[server.Priority] = append(serversByPriority[server.Priority], server)
+	}
+
+	var prioritiesTmp []int
+	for priority := range serversByPriority {
+		prioritiesTmp = append(prioritiesTmp, int(priority))
+	}
+	sort.Ints(prioritiesTmp)
+
+	// convert back to uint16
+	var priorities []uint16
+	for _, priority := range prioritiesTmp {
+		priorities = append(priorities, uint16(priority))
+	}
+
+	return serversByPriority, priorities
 }
