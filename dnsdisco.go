@@ -295,19 +295,23 @@ type defaultBalancer struct {
 func (d *defaultBalancer) Balance(servers []Server) (index int) {
 	serversByPriority, priorities := groupServersByPriority(servers)
 
-	// A client MUST attempt to contact the target host with the lowest-numbered
-	// priority it can reach
+	// detect the servers that weren't selected so frequently
+	minimumUsed := -1
+
 	for _, priority := range priorities {
 		selectedServers := serversByPriority[priority]
 
-		// detect the servers that weren't selected so frequently in this priority
-		// group
-		minimumUsed := -1
 		for _, server := range selectedServers {
 			if server.Used < minimumUsed || minimumUsed == -1 {
 				minimumUsed = server.Used
 			}
 		}
+	}
+
+	// A client MUST attempt to contact the target host with the lowest-numbered
+	// priority it can reach
+	for _, priority := range priorities {
+		selectedServers := serversByPriority[priority]
 
 		// remove servers that are selected frequently
 		for i := len(selectedServers) - 1; i >= 0; i-- {

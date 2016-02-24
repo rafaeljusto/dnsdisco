@@ -120,7 +120,7 @@ func TestDiscoverDefaultBalancer(t *testing.T) {
 			expectedPort:   2222,
 		},
 		{
-			description: "it should retrieve the target correctly (fallback to other priority group)",
+			description: "it should retrieve the target correctly (fallback to other priority group by health check)",
 			service:     "jabber",
 			proto:       "tcp",
 			name:        "registro.br",
@@ -166,6 +166,57 @@ func TestDiscoverDefaultBalancer(t *testing.T) {
 
 				return false, nil
 			}),
+			expectedTarget: "server4.example.com.",
+			expectedPort:   4444,
+		},
+		{
+			description: "it should retrieve the target correctly (fallback to other priority group by used counter)",
+			service:     "jabber",
+			proto:       "tcp",
+			name:        "registro.br",
+			retriever: dnsdisco.RetrieverFunc(func(service, proto, name string) ([]*net.SRV, error) {
+				return []*net.SRV{
+					{
+						Target:   "server1.example.com.",
+						Port:     1111,
+						Priority: 10,
+						Weight:   20,
+					},
+					{
+						Target:   "server2.example.com.",
+						Port:     2222,
+						Priority: 10,
+						Weight:   10,
+					},
+					{
+						Target:   "server3.example.com.",
+						Port:     3333,
+						Priority: 20,
+						Weight:   20,
+					},
+					{
+						Target:   "server4.example.com.",
+						Port:     4444,
+						Priority: 20,
+						Weight:   10,
+					},
+				}, nil
+			}),
+			healthChecker: dnsdisco.HealthCheckerFunc(func(target string, port uint16, proto string) (ok bool, err error) {
+				switch target {
+				case "server1.example.com.":
+					return true, nil
+				case "server2.example.com.":
+					return true, nil
+				case "server3.example.com.":
+					return false, nil
+				case "server4.example.com.":
+					return true, nil
+				}
+
+				return false, nil
+			}),
+			rerun:          2,
 			expectedTarget: "server4.example.com.",
 			expectedPort:   4444,
 		},
