@@ -107,14 +107,7 @@ func TestDiscoverDefaultBalancer(t *testing.T) {
 				}, nil
 			}),
 			healthChecker: dnsdisco.HealthCheckerFunc(func(target string, port uint16, proto string) (ok bool, err error) {
-				switch target {
-				case "server1.example.com.":
-					return false, nil
-				case "server2.example.com.":
-					return true, nil
-				}
-
-				return false, nil
+				return target == "server2.example.com.", nil
 			}),
 			expectedTarget: "server2.example.com.",
 			expectedPort:   2222,
@@ -153,18 +146,7 @@ func TestDiscoverDefaultBalancer(t *testing.T) {
 				}, nil
 			}),
 			healthChecker: dnsdisco.HealthCheckerFunc(func(target string, port uint16, proto string) (ok bool, err error) {
-				switch target {
-				case "server1.example.com.":
-					return false, nil
-				case "server2.example.com.":
-					return false, nil
-				case "server3.example.com.":
-					return false, nil
-				case "server4.example.com.":
-					return true, nil
-				}
-
-				return false, nil
+				return target == "server4.example.com.", nil
 			}),
 			expectedTarget: "server4.example.com.",
 			expectedPort:   4444,
@@ -203,18 +185,7 @@ func TestDiscoverDefaultBalancer(t *testing.T) {
 				}, nil
 			}),
 			healthChecker: dnsdisco.HealthCheckerFunc(func(target string, port uint16, proto string) (ok bool, err error) {
-				switch target {
-				case "server1.example.com.":
-					return true, nil
-				case "server2.example.com.":
-					return true, nil
-				case "server3.example.com.":
-					return false, nil
-				case "server4.example.com.":
-					return true, nil
-				}
-
-				return false, nil
+				return target != "server3.example.com.", nil
 			}),
 			rerun:          2,
 			expectedTarget: "server4.example.com.",
@@ -277,12 +248,7 @@ func TestDiscoverDefaultBalancer(t *testing.T) {
 				}, nil
 			}),
 			healthChecker: dnsdisco.HealthCheckerFunc(func(target string, port uint16, proto string) (ok bool, err error) {
-				switch target {
-				case "server1.example.com.":
-					return true, nil
-				}
-
-				return false, nil
+				return target == "server1.example.com.", nil
 			}),
 			expectedTarget: "server1.example.com.",
 			expectedPort:   2222,
