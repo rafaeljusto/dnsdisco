@@ -557,7 +557,7 @@ func TestRefreshAsync(t *testing.T) {
 		discovery.HealthChecker = item.healthChecker
 
 		finish := discovery.RefreshAsync(item.refreshInterval)
-		time.Sleep(item.refreshInterval + (100 * time.Millisecond))
+		time.Sleep(item.refreshInterval + (50 * time.Millisecond))
 
 		target, port := discovery.Choose()
 
