@@ -202,16 +202,16 @@ func TestRefreshAsync(t *testing.T) {
 
 					return []*net.SRV{
 						{
-							Target:   "server3.example.com.",
-							Port:     3333,
-							Priority: 15,
-							Weight:   20,
-						},
-						{
 							Target:   "server4.example.com.",
 							Port:     4444,
 							Priority: 10,
 							Weight:   10,
+						},
+						{
+							Target:   "server3.example.com.",
+							Port:     3333,
+							Priority: 15,
+							Weight:   20,
 						},
 					}, nil
 				})

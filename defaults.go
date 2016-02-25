@@ -2,7 +2,6 @@ package dnsdisco
 
 import (
 	"math/rand"
-	"sort"
 	"time"
 )
 
@@ -36,86 +35,72 @@ type defaultLoadBalancer struct {
 //   the next target host.  Continue the ordering process until there
 //   are no unordered SRV RRs.  This process is repeated for each
 //   Priority.
-func (d *defaultLoadBalancer) LoadBalance(servers []Server) (index int) {
-	serversByPriority, priorities := groupServersByPriority(servers)
-
+//
+// The algorithm assumes that the servers slice is already sorted by priority
+// and randomized by weight within a priority.
+func (d defaultLoadBalancer) LoadBalance(servers []Server) (index int) {
 	// detect the servers that weren't selected so frequently
-	minimumUsed := -1
+	minimumUse := d.getServersMinimumUse(servers)
 
-	for _, priority := range priorities {
-		selectedServers := serversByPriority[priority]
+	var selectedServers []serverWeight
+	var totalWeight int
+	priority := -1
 
-		for _, server := range selectedServers {
-			if (server.Used < minimumUsed || minimumUsed == -1) && server.LastHealthCheck {
-				minimumUsed = server.Used
-			}
+	for i, server := range servers {
+		// detect priority change
+		if priority != -1 && priority != int(server.Priority) {
+			break
+		}
+
+		if server.Used == minimumUse && server.LastHealthCheck {
+			priority = int(server.Priority)
+			totalWeight += int(server.Weight)
+			selectedServers = append(selectedServers, serverWeight{
+				Server:        server,
+				weight:        totalWeight,
+				originalIndex: i,
+			})
 		}
 	}
 
-	// A client MUST attempt to contact the target host with the lowest-numbered
-	// priority it can reach
-	for _, priority := range priorities {
-		selectedServers := serversByPriority[priority]
+	// choose a uniform random number between 0 and the sum computed (inclusive)
+	randomNumber := randomSource.Intn(totalWeight + 1)
 
-		// remove servers that are selected frequently or are feeling well (health
-		// check)
-		for i := len(selectedServers) - 1; i >= 0; i-- {
-			if selectedServers[i].Used > minimumUsed || !selectedServers[i].LastHealthCheck {
-				selectedServers = append(selectedServers[:i], selectedServers[i+1:]...)
-			}
+	for _, server := range selectedServers {
+		// select the RR whose running sum value is the first in the selected
+		// order which is greater than or equal to the random number selected
+		if server.weight < randomNumber {
+			continue
 		}
 
-		var totalWeight int
-		selectedServersWeight := make([]int, len(selectedServers))
-
-		// compute the sum of the weights of those RRs, and with each RR
-		// associate the running sum in the selected order
-		for i, server := range selectedServers {
-			totalWeight += int(server.Weight)
-			selectedServersWeight[i] = totalWeight
-		}
-
-		// choose a uniform random number between 0 and the sum computed (inclusive)
-		randomNumber := randomSource.Intn(totalWeight + 1)
-
-		for i, weight := range selectedServersWeight {
-			// select the RR whose running sum value is the first in the selected
-			// order which is greater than or equal to the random number selected
-			if weight < randomNumber {
-				continue
-			}
-
-			// find the correct position of the selected server
-			for j, server := range servers {
-				if server == selectedServers[i] {
-					return j
-				}
-			}
-		}
+		return server.originalIndex
 	}
 
 	return -1
 }
 
-// groupServersByPriority group the servers by priority, and also sort all
-// unique priorities for a sorted access.
-func groupServersByPriority(servers []Server) (map[uint16][]Server, []uint16) {
-	serversByPriority := make(map[uint16][]Server)
+// getServersMinimumUse returns the minimum number of times that a server was
+// selected. If no server is available -1 is returned.
+func (d defaultLoadBalancer) getServersMinimumUse(servers []Server) int {
+	minimumUsed := -1
 	for _, server := range servers {
-		serversByPriority[server.Priority] = append(serversByPriority[server.Priority], server)
+		if (server.Used < minimumUsed || minimumUsed == -1) && server.LastHealthCheck {
+			minimumUsed = server.Used
+		}
 	}
+	return minimumUsed
+}
 
-	var prioritiesTmp []int
-	for priority := range serversByPriority {
-		prioritiesTmp = append(prioritiesTmp, int(priority))
-	}
-	sort.Ints(prioritiesTmp)
+// serverWeight stores a server type plus some additional data useful for
+// selecting the server according the RFC 2782 algorithm.
+type serverWeight struct {
+	Server
 
-	// convert back to uint16
-	var priorities []uint16
-	for _, priority := range prioritiesTmp {
-		priorities = append(priorities, uint16(priority))
-	}
+	// weight compute the sum of the weights of the running sum in the selected
+	// order.
+	weight int
 
-	return serversByPriority, priorities
+	// originalIndex stores the index reference from the original slice of
+	// servers.
+	originalIndex int
 }
