@@ -9,7 +9,7 @@ import (
 	"github.com/rafaeljusto/dnsdisco"
 )
 
-func TestDefaultBalancer(t *testing.T) {
+func TestDefaultLoadBalancer(t *testing.T) {
 	scenarios := []struct {
 		description    string
 		service        string
@@ -270,7 +270,7 @@ func TestDefaultHealthChecker(t *testing.T) {
 		proto          string
 		name           string
 		retriever      dnsdisco.RetrieverFunc
-		balancer       dnsdisco.BalancerFunc
+		loadBalancer   dnsdisco.LoadBalancerFunc
 		expectedTarget string
 		expectedPort   uint16
 		expectedError  error
@@ -290,7 +290,7 @@ func TestDefaultHealthChecker(t *testing.T) {
 					},
 				}, nil
 			}),
-			balancer: dnsdisco.BalancerFunc(func(servers []dnsdisco.Server) (index int) {
+			loadBalancer: dnsdisco.LoadBalancerFunc(func(servers []dnsdisco.Server) (index int) {
 				for i, server := range servers {
 					if server.LastHealthCheck {
 						return i
@@ -317,7 +317,7 @@ func TestDefaultHealthChecker(t *testing.T) {
 					},
 				}, nil
 			}),
-			balancer: dnsdisco.BalancerFunc(func(servers []dnsdisco.Server) (index int) {
+			loadBalancer: dnsdisco.LoadBalancerFunc(func(servers []dnsdisco.Server) (index int) {
 				for i, server := range servers {
 					if server.LastHealthCheck {
 						return i
@@ -344,7 +344,7 @@ func TestDefaultHealthChecker(t *testing.T) {
 					},
 				}, nil
 			}),
-			balancer: dnsdisco.BalancerFunc(func(servers []dnsdisco.Server) (index int) {
+			loadBalancer: dnsdisco.LoadBalancerFunc(func(servers []dnsdisco.Server) (index int) {
 				for i, server := range servers {
 					if server.LastHealthCheck {
 						return i
@@ -361,7 +361,7 @@ func TestDefaultHealthChecker(t *testing.T) {
 	for i, item := range scenarios {
 		discovery := dnsdisco.NewDiscovery(item.service, item.proto, item.name)
 		discovery.SetRetriever(item.retriever)
-		discovery.SetBalancer(item.balancer)
+		discovery.SetLoadBalancer(item.loadBalancer)
 
 		if err := discovery.Refresh(); err != nil {
 			t.Errorf("scenario %d, “%s”: unexpected error while retrieving DNS records. Details: %s",
@@ -382,7 +382,7 @@ func TestDefaultHealthChecker(t *testing.T) {
 	}
 }
 
-func BenchmarkBalancer(b *testing.B) {
+func BenchmarkDefaultLoadBalancer(b *testing.B) {
 	discovery := dnsdisco.NewDiscovery("jabber", "tcp", "registro.br")
 	discovery.SetHealthChecker(dnsdisco.HealthCheckerFunc(func(target string, port uint16, proto string) (ok bool, err error) {
 		return true, nil

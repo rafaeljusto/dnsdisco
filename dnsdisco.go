@@ -38,11 +38,11 @@ type Discovery interface {
 	// be closed.
 	RefreshAsync(time.Duration) chan<- bool
 
-	// Choose will return the best target to use based on a defined balancer. By
-	// default the library choose the server based on the RFC 2782 considering
-	// only the online servers. It is possible to change the balancer behaviour
-	// using the SetBalancer method from the Discovery interface. If no good match
-	// is found it should return a empty target and a zero port.
+	// Choose will return the best target to use based on a defined load balancer.
+	// By default the library choose the server based on the RFC 2782 considering
+	// only the online servers. It is possible to change the load balancer
+	// behaviour using the SetLoadBalancer method from the Discovery interface. If
+	// no good match is found it should return a empty target and a zero port.
 	Choose() (target string, port uint16)
 
 	// Errors return all errors found during asynchronous executions. Once this
@@ -59,8 +59,8 @@ type Discovery interface {
 	// verification.
 	SetHealthCheckerTTL(time.Duration)
 
-	// SetBalancer changes how the library selects the best server.
-	SetBalancer(balancer)
+	// SetLoadBalancer changes how the library selects the best server.
+	SetLoadBalancer(loadBalancer)
 }
 
 // discovery stores all the necessary information to discover the services.
@@ -100,13 +100,13 @@ type discovery struct {
 	// the library is executing the operations.
 	healthCheckerTTLLock sync.RWMutex
 
-	// balancer is responsible for choosing the target that will be used. By
+	// loadBalancer is responsible for choosing the target that will be used. By
 	// default the library choose the target based on the RFC 2782 algorithm.
-	balancer balancer
+	loadBalancer loadBalancer
 
-	// balancerLock make it possible to change the load balancer algorithm while
-	// the library is executing the operations.
-	balancerLock sync.RWMutex
+	// loadBalancerLock make it possible to change the load balancer algorithm
+	// while the library is executing the operations.
+	loadBalancerLock sync.RWMutex
 
 	// servers stores the retrieved servers to avoid DNS requests all the time.
 	servers []Server
@@ -156,7 +156,7 @@ func NewDiscovery(service, proto, name string) Discovery {
 		}),
 		healthCheckerTTL: defaultHealthCheckerTTL,
 
-		balancer: new(defaultBalancer),
+		loadBalancer: new(defaultLoadBalancer),
 	}
 }
 
@@ -210,11 +210,11 @@ func (d *discovery) RefreshAsync(interval time.Duration) chan<- bool {
 	return finish
 }
 
-// Choose will return the best target to use based on a defined balancer. By
-// default the library choose the server based on the RFC 2782 considering only
-// the online servers. It is possible to change the balancer behaviour using
-// the SetBalancer method from the Discovery interface. If no good match is
-// found it should return a empty target and a zero port.
+// Choose will return the best target to use based on a defined load balancer.
+// By default the library choose the server based on the RFC 2782 considering
+// only the online servers. It is possible to change the load balancer behaviour
+// using the SetLoadBalancer method from the Discovery interface. If no good
+// match is found it should return a empty target and a zero port.
 func (d *discovery) Choose() (target string, port uint16) {
 	d.serversLock.Lock()
 	defer d.serversLock.Unlock()
@@ -239,13 +239,13 @@ func (d *discovery) Choose() (target string, port uint16) {
 		d.servers[i].lastHealthCheckAt = time.Now()
 	}
 
-	// don't allow the balancer to modify the original servers slice
+	// don't allow the load balancer to modify the original servers slice
 	serversCopy := make([]Server, len(d.servers))
 	copy(serversCopy, d.servers)
 
-	d.balancerLock.RLock()
-	i := d.balancer.Balance(serversCopy)
-	d.balancerLock.RUnlock()
+	d.loadBalancerLock.RLock()
+	i := d.loadBalancer.LoadBalance(serversCopy)
+	d.loadBalancerLock.RUnlock()
 
 	if i >= 0 && i < len(d.servers) {
 		d.servers[i].Used++
@@ -289,12 +289,12 @@ func (d *discovery) SetHealthCheckerTTL(ttl time.Duration) {
 	d.healthCheckerTTL = ttl
 }
 
-// SetBalancer changes how the library selects the best server. It is go routine
-// safe.
-func (d *discovery) SetBalancer(b balancer) {
-	d.balancerLock.Lock()
-	defer d.balancerLock.Unlock()
-	d.balancer = b
+// SetLoadBalancer changes how the library selects the best server. It is go
+// routine safe.
+func (d *discovery) SetLoadBalancer(b loadBalancer) {
+	d.loadBalancerLock.Lock()
+	defer d.loadBalancerLock.Unlock()
+	d.loadBalancer = b
 }
 
 // retriever allows the library user to define a custom DNS retrieve algorithm.
@@ -332,19 +332,19 @@ func (h HealthCheckerFunc) HealthCheck(target string, port uint16, proto string)
 	return h(target, port, proto)
 }
 
-// balancer allows the library user to define a custom balance algorithm.
-type balancer interface {
-	// Balance will choose the best target.
-	Balance(servers []Server) (index int)
+// loadBalancer allows the library user to define a custom balance algorithm.
+type loadBalancer interface {
+	// LoadBalance will choose the best target.
+	LoadBalance(servers []Server) (index int)
 }
 
-// BalancerFunc is an easy-to-use implementation of the interface that is
+// LoadBalancerFunc is an easy-to-use implementation of the interface that is
 // responsible for choosing the best target. It returns the slice index of the
 // chosen target or -1 when none was selected.
-type BalancerFunc func(servers []Server) (index int)
+type LoadBalancerFunc func(servers []Server) (index int)
 
-// Balance will choose the best target.
-func (b BalancerFunc) Balance(servers []Server) (index int) {
+// LoadBalance will choose the best target.
+func (b LoadBalancerFunc) LoadBalance(servers []Server) (index int) {
 	return b(servers)
 }
 

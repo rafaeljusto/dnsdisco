@@ -16,12 +16,12 @@ var (
 	randomSource = rand.New(rand.NewSource(time.Now().UnixNano()))
 )
 
-// defaultBalancer is the default implementation used when the library client
-// doesn't replace the Balancer attribute.
-type defaultBalancer struct {
+// defaultLoadBalancer is the default implementation used when the library
+// client doesn't replace using the SetLoadBalancer method.
+type defaultLoadBalancer struct {
 }
 
-// Balance follows the algorithm described in the RFC 2782, based on the
+// LoadBalance follows the algorithm described in the RFC 2782, based on the
 // priority and weight of the SRV records.
 //
 //   Compute the sum of the weights of those RRs, and with each RR
@@ -36,7 +36,7 @@ type defaultBalancer struct {
 //   the next target host.  Continue the ordering process until there
 //   are no unordered SRV RRs.  This process is repeated for each
 //   Priority.
-func (d *defaultBalancer) Balance(servers []Server) (index int) {
+func (d *defaultLoadBalancer) LoadBalance(servers []Server) (index int) {
 	serversByPriority, priorities := groupServersByPriority(servers)
 
 	// detect the servers that weren't selected so frequently

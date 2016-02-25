@@ -97,7 +97,7 @@ func TestHealthCheckerTTL(t *testing.T) {
 		name             string
 		retriever        dnsdisco.RetrieverFunc
 		healthCheckerTTL time.Duration
-		balancer         dnsdisco.BalancerFunc
+		loadBalancer     dnsdisco.LoadBalancerFunc
 		rerun            int
 		expectedCalls    int
 	}{
@@ -117,7 +117,7 @@ func TestHealthCheckerTTL(t *testing.T) {
 				}, nil
 			}),
 			healthCheckerTTL: 1 * time.Second,
-			balancer: dnsdisco.BalancerFunc(func(servers []dnsdisco.Server) (index int) {
+			loadBalancer: dnsdisco.LoadBalancerFunc(func(servers []dnsdisco.Server) (index int) {
 				for i, server := range servers {
 					if server.LastHealthCheck {
 						return i
@@ -135,7 +135,7 @@ func TestHealthCheckerTTL(t *testing.T) {
 		discovery := dnsdisco.NewDiscovery(item.service, item.proto, item.name)
 		discovery.SetRetriever(item.retriever)
 		discovery.SetHealthCheckerTTL(item.healthCheckerTTL)
-		discovery.SetBalancer(item.balancer)
+		discovery.SetLoadBalancer(item.loadBalancer)
 
 		calls := 0
 		discovery.SetHealthChecker(dnsdisco.HealthCheckerFunc(func(target string, port uint16, proto string) (ok bool, err error) {
@@ -392,12 +392,12 @@ func ExampleRetrieverFunc() {
 	// Port: 5269
 }
 
-// ExampleBalancerFunc uses a round-robin algorithm. As we don't known which
+// ExampleLoadBalancerFunc uses a round-robin algorithm. As we don't known which
 // server position was used in the last time, we try to select using the Used
 // attribute.
-func ExampleBalancerFunc() {
+func ExampleLoadBalancerFunc() {
 	discovery := dnsdisco.NewDiscovery("jabber", "tcp", "registro.br")
-	discovery.SetBalancer(dnsdisco.BalancerFunc(func(servers []dnsdisco.Server) (index int) {
+	discovery.SetLoadBalancer(dnsdisco.LoadBalancerFunc(func(servers []dnsdisco.Server) (index int) {
 		minimum := -1
 		for _, server := range servers {
 			if server.Used < minimum || minimum == -1 {
