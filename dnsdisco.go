@@ -232,8 +232,11 @@ func (d *discovery) Choose() (target string, port uint16) {
 		ok, err := d.healthChecker.HealthCheck(server.Target, server.Port, d.proto)
 		d.healthCheckerLock.RUnlock()
 
-		// TODO(rafaeljusto): We should store this error somewhere. Maybe in errors
-		// attribute? It is good to known why the health check is failing.
+		if err != nil {
+			d.errorsLock.Lock()
+			d.errors = append(d.errors, err)
+			d.errorsLock.Unlock()
+		}
 
 		d.servers[i].LastHealthCheck = err == nil && ok
 		d.servers[i].lastHealthCheckAt = time.Now()
