@@ -50,17 +50,17 @@ type Discovery interface {
 	Errors() []error
 
 	// SetRetriever changes how the library retrieves the DNS SRV records.
-	SetRetriever(retriever)
+	SetRetriever(Retriever)
 
 	// SetHealthChecker changes the way the library health check each server.
-	SetHealthChecker(healthChecker)
+	SetHealthChecker(HealthChecker)
 
 	// SetHealthCheckerTTL changes the health check TTL that avoids an aggressive
 	// verification.
 	SetHealthCheckerTTL(time.Duration)
 
 	// SetLoadBalancer changes how the library selects the best server.
-	SetLoadBalancer(loadBalancer)
+	SetLoadBalancer(LoadBalancer)
 }
 
 // discovery stores all the necessary information to discover the services.
@@ -77,7 +77,7 @@ type discovery struct {
 	// retriever is responsible for sending the SRV requests. It is possible to
 	// implement this interface to change the retrieve behaviour, that by default
 	// queries the local resolver.
-	retriever retriever
+	retriever Retriever
 
 	// retrieverLock make it possible to change the retriever algorithm while the
 	// library is executing the operations.
@@ -86,7 +86,7 @@ type discovery struct {
 	// healthChecker is responsible for verifying if the target is still on, if
 	// not the library can move to the next target. By default the health check
 	// only tries a simple connection to the target.
-	healthChecker healthChecker
+	healthChecker HealthChecker
 
 	// healthCheckerLock make it possible to change the health check algorithm
 	// while the library is executing the operations.
@@ -102,7 +102,7 @@ type discovery struct {
 
 	// loadBalancer is responsible for choosing the target that will be used. By
 	// default the library choose the target based on the RFC 2782 algorithm.
-	loadBalancer loadBalancer
+	loadBalancer LoadBalancer
 
 	// loadBalancerLock make it possible to change the load balancer algorithm
 	// while the library is executing the operations.
@@ -267,7 +267,7 @@ func (d *discovery) Errors() []error {
 
 // SetRetriever changes how the library retrieves the DNS SRV records. It is go
 // routine safe.
-func (d *discovery) SetRetriever(r retriever) {
+func (d *discovery) SetRetriever(r Retriever) {
 	d.retrieverLock.Lock()
 	defer d.retrieverLock.Unlock()
 	d.retriever = r
@@ -275,7 +275,7 @@ func (d *discovery) SetRetriever(r retriever) {
 
 // SetHealthChecker changes the way the library health check each server. It is
 // go routine safe.
-func (d *discovery) SetHealthChecker(h healthChecker) {
+func (d *discovery) SetHealthChecker(h HealthChecker) {
 	d.healthCheckerLock.Lock()
 	defer d.healthCheckerLock.Unlock()
 	d.healthChecker = h
@@ -291,14 +291,14 @@ func (d *discovery) SetHealthCheckerTTL(ttl time.Duration) {
 
 // SetLoadBalancer changes how the library selects the best server. It is go
 // routine safe.
-func (d *discovery) SetLoadBalancer(b loadBalancer) {
+func (d *discovery) SetLoadBalancer(b LoadBalancer) {
 	d.loadBalancerLock.Lock()
 	defer d.loadBalancerLock.Unlock()
 	d.loadBalancer = b
 }
 
-// retriever allows the library user to define a custom DNS retrieve algorithm.
-type retriever interface {
+// Retriever allows the library user to define a custom DNS retrieve algorithm.
+type Retriever interface {
 	// Retrieve will send the DNS request and return all SRV records retrieved
 	// from the response.
 	Retrieve(service, proto, name string) ([]*net.SRV, error)
@@ -314,9 +314,9 @@ func (r RetrieverFunc) Retrieve(service, proto, name string) ([]*net.SRV, error)
 	return r(service, proto, name)
 }
 
-// healthChecker allows the library user to define a custom health check
+// HealthChecker allows the library user to define a custom health check
 // algorithm.
-type healthChecker interface {
+type HealthChecker interface {
 	// HealthCheck will analyze the target port/proto to check if it is still
 	// capable of receiving requests.
 	HealthCheck(target string, port uint16, proto string) (ok bool, err error)
@@ -332,8 +332,8 @@ func (h HealthCheckerFunc) HealthCheck(target string, port uint16, proto string)
 	return h(target, port, proto)
 }
 
-// loadBalancer allows the library user to define a custom balance algorithm.
-type loadBalancer interface {
+// LoadBalancer allows the library user to define a custom balance algorithm.
+type LoadBalancer interface {
 	// LoadBalance will choose the best target.
 	LoadBalance(servers []Server) (index int)
 }
