@@ -293,6 +293,8 @@ func TestRefreshAsync(t *testing.T) {
 	}
 }
 
+// ExampleDiscover is the fastest way to select a server using all default
+// algorithms.
 func ExampleDiscover() {
 	target, port, err := dnsdisco.Discover("jabber", "tcp", "registro.br")
 	if err != nil {
@@ -307,7 +309,9 @@ func ExampleDiscover() {
 	// Port: 5269
 }
 
-func ExampleDiscovery_RefreshAsync() {
+// ExampleDiscover_RefreshAsync updates the servers list asynchronously every
+// 100 milliseconds.
+func ExampleDiscover_RefreshAsync() {
 	discovery := dnsdisco.NewDiscovery("jabber", "tcp", "registro.br")
 
 	// depending on where this examples run the retrieving time differs (DNS RTT),
@@ -339,7 +343,7 @@ func ExampleDiscovery_RefreshAsync() {
 	// Port: 5269
 }
 
-// ExampleRetrieverFunc uses a specific resolver with custom timeouts
+// ExampleRetrieverFunc uses a specific resolver with custom timeouts.
 func ExampleRetrieverFunc() {
 	discovery := dnsdisco.NewDiscovery("jabber", "tcp", "registro.br")
 	discovery.SetRetriever(dnsdisco.RetrieverFunc(func(service, proto, name string) (servers []*net.SRV, err error) {
