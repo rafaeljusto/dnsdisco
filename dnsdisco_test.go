@@ -309,9 +309,9 @@ func ExampleDiscover() {
 	// Port: 5269
 }
 
-// ExampleDiscover_RefreshAsync updates the servers list asynchronously every
+// ExampleDiscover_refreshAsync updates the servers list asynchronously every
 // 100 milliseconds.
-func ExampleDiscover_RefreshAsync() {
+func ExampleDiscover_refreshAsync() {
 	discovery := dnsdisco.NewDiscovery("jabber", "tcp", "registro.br")
 
 	// depending on where this examples run the retrieving time differs (DNS RTT),
