@@ -36,34 +36,89 @@ func Discover(service, proto, name string) (target string, port uint16, err erro
 	return
 }
 
-// Discovery stores all the necessary information to discover the services.
-type Discovery struct {
-	// Service is the name of the application that the library is looking for.
-	Service string
+// Discovery contains all the methods to discover the services and select the
+// best one at the moment. The use of interface allows the users to mock this
+// library easily for unit tests.
+type Discovery interface {
+	// Refresh retrieves the servers using the DNS SRV solution. It is possible to
+	// change the default behaviour (local resolver with default timeouts) using
+	// the SetRetriever method from the Discovery interface.
+	Refresh() error
 
-	// Proto is the protocol used by the application. Could be "udp" or "tcp".
-	Proto string
+	// RefreshAsync works exactly as Refresh, but is non-blocking and will repeat
+	// the action on every interval. To stop the refresh the returned channel must
+	// be closed.
+	RefreshAsync(time.Duration) chan<- bool
 
-	// Name is the domain name where the library will look for the SRV records.
-	Name string
+	// Choose will return the best target to use based on a defined balancer. By
+	// default the library choose the server based on the RFC 2782 considering
+	// only the online servers. It is possible to change the balancer behaviour
+	// using the SetBalancer method from the Discovery interface. If no good match
+	// is found it should return a empty target and a zero port.
+	Choose() (target string, port uint16)
 
-	// Retriever is responsible for sending the SRV requests. It is possible to
+	// Errors return all errors found during asynchronous executions. Once this
+	// method is called the internal errors buffer is cleared.
+	Errors() []error
+
+	// SetRetriever changes how the library retrieves the DNS SRV records.
+	SetRetriever(retriever)
+
+	// SetHealthChecker changes the way the library health check each server.
+	SetHealthChecker(healthChecker)
+
+	// SetHealthCheckerTTL changes the health check TTL that avoids an aggressive
+	// verification.
+	SetHealthCheckerTTL(time.Duration)
+
+	// SetBalancer changes how the library selects the best server.
+	SetBalancer(balancer)
+}
+
+// discovery stores all the necessary information to discover the services.
+type discovery struct {
+	// service is the name of the application that the library is looking for.
+	service string
+
+	// proto is the protocol used by the application. Could be "udp" or "tcp".
+	proto string
+
+	// name is the domain name where the library will look for the SRV records.
+	name string
+
+	// retriever is responsible for sending the SRV requests. It is possible to
 	// implement this interface to change the retrieve behaviour, that by default
 	// queries the local resolver.
-	Retriever retriever
+	retriever retriever
 
-	// HealthChecker is responsible for verifying if the target is still on, if
+	// retrieverLock make it possible to change the retriever algorithm while the
+	// library is executing the operations.
+	retrieverLock sync.RWMutex
+
+	// healthChecker is responsible for verifying if the target is still on, if
 	// not the library can move to the next target. By default the health check
 	// only tries a simple connection to the target.
-	HealthChecker healthChecker
+	healthChecker healthChecker
 
-	// HealthCheckerTTL stores the cache time of a a health check result for a
+	// healthCheckerLock make it possible to change the health check algorithm
+	// while the library is executing the operations.
+	healthCheckerLock sync.RWMutex
+
+	// healthCheckerTTL stores the cache time of a a health check result for a
 	// specific server.
-	HealthCheckerTTL time.Duration
+	healthCheckerTTL time.Duration
 
-	// Balancer is responsible for choosing the target that will be used. By
+	// healthCheckerTTLLock make it possible to change the health check TTL while
+	// the library is executing the operations.
+	healthCheckerTTLLock sync.RWMutex
+
+	// balancer is responsible for choosing the target that will be used. By
 	// default the library choose the target based on the RFC 2782 algorithm.
-	Balancer balancer
+	balancer balancer
+
+	// balancerLock make it possible to change the load balancer algorithm while
+	// the library is executing the operations.
+	balancerLock sync.RWMutex
 
 	// servers stores the retrieved servers to avoid DNS requests all the time.
 	servers []Server
@@ -79,22 +134,26 @@ type Discovery struct {
 	errorsLock sync.Mutex
 }
 
-// NewDiscovery builds a Discovery type with all default values. To retrieve the
-// servers it will use the net.LookupSRV (local resolver), for health check
-// will only perform a simple connection, and the chosen target will be selected
-// using the RFC 2782 considering only online servers.
-func NewDiscovery(service, proto, name string) *Discovery {
-	return &Discovery{
-		Service: service,
-		Name:    name,
-		Proto:   proto,
+// NewDiscovery builds the default implementation of the Discovery interface. To
+// retrieve the servers it will use the net.LookupSRV (local resolver), for
+// health check will only perform a simple connection, and the chosen target
+// will be selected using the RFC 2782 considering only online servers.
+//
+// The returned type can be used globally as it is go routine safe. It is
+// recommended to keep a global Discovery for each service to minimize the
+// number of DNS requests.
+func NewDiscovery(service, proto, name string) Discovery {
+	return &discovery{
+		service: service,
+		name:    name,
+		proto:   proto,
 
-		Retriever: RetrieverFunc(func(service, proto, name string) (servers []*net.SRV, err error) {
+		retriever: RetrieverFunc(func(service, proto, name string) (servers []*net.SRV, err error) {
 			_, servers, err = net.LookupSRV(service, proto, name)
 			return
 		}),
 
-		HealthChecker: HealthCheckerFunc(func(target string, port uint16, proto string) (ok bool, err error) {
+		healthChecker: HealthCheckerFunc(func(target string, port uint16, proto string) (ok bool, err error) {
 			address := fmt.Sprintf("%s:%d", target, port)
 			if proto != "tcp" && proto != "udp" {
 				return false, net.UnknownNetworkError(proto)
@@ -107,17 +166,20 @@ func NewDiscovery(service, proto, name string) *Discovery {
 			conn.Close()
 			return true, nil
 		}),
-		HealthCheckerTTL: defaultHealthCheckerTTL,
+		healthCheckerTTL: defaultHealthCheckerTTL,
 
-		Balancer: new(defaultBalancer),
+		balancer: new(defaultBalancer),
 	}
 }
 
 // Refresh retrieves the servers using the DNS SRV solution. It is possible to
-// change the default behaviour (local resolver with default timeouts) replacing
-// the Retriever attribute from the Discovery type.
-func (d *Discovery) Refresh() error {
-	servers, err := d.Retriever.Retrieve(d.Service, d.Proto, d.Name)
+// change the default behaviour (local resolver with default timeouts) using
+// the SetRetriever method from the Discovery interface.
+func (d *discovery) Refresh() error {
+	d.retrieverLock.RLock()
+	servers, err := d.retriever.Retrieve(d.service, d.proto, d.name)
+	d.retrieverLock.RUnlock()
+
 	if err != nil {
 		return err
 	}
@@ -138,7 +200,7 @@ func (d *Discovery) Refresh() error {
 // RefreshAsync works exactly as Refresh, but is non-blocking and will repeat
 // the action on every interval. To stop the refresh the returned channel must
 // be closed.
-func (d *Discovery) RefreshAsync(interval time.Duration) chan<- bool {
+func (d *discovery) RefreshAsync(interval time.Duration) chan<- bool {
 	finish := make(chan bool)
 
 	go func() {
@@ -162,19 +224,29 @@ func (d *Discovery) RefreshAsync(interval time.Duration) chan<- bool {
 
 // Choose will return the best target to use based on a defined balancer. By
 // default the library choose the server based on the RFC 2782 considering only
-// the online servers. It is possible to change the balancer behaviour replacing
-// the Balancer attribute from the Discovery type. If no good match is found it
-// will return a empty target and a zero port.
-func (d *Discovery) Choose() (target string, port uint16) {
+// the online servers. It is possible to change the balancer behaviour using
+// the SetBalancer method from the Discovery interface. If no good match is
+// found it should return a empty target and a zero port.
+func (d *discovery) Choose() (target string, port uint16) {
 	d.serversLock.Lock()
 	defer d.serversLock.Unlock()
 
+	d.healthCheckerTTLLock.RLock()
+	healthCheckTTL := d.healthCheckerTTL
+	d.healthCheckerTTLLock.RUnlock()
+
 	for i, server := range d.servers {
-		if time.Now().Sub(server.lastHealthCheckAt) < d.HealthCheckerTTL {
+		if time.Now().Sub(server.lastHealthCheckAt) < healthCheckTTL {
 			continue
 		}
 
-		ok, err := d.HealthChecker.HealthCheck(server.Target, server.Port, d.Proto)
+		d.healthCheckerLock.RLock()
+		ok, err := d.healthChecker.HealthCheck(server.Target, server.Port, d.proto)
+		d.healthCheckerLock.RUnlock()
+
+		// TODO(rafaeljusto): We should store this error somewhere. Maybe in errors
+		// attribute? It is good to known why the health check is failing.
+
 		d.servers[i].LastHealthCheck = err == nil && ok
 		d.servers[i].lastHealthCheckAt = time.Now()
 	}
@@ -183,7 +255,11 @@ func (d *Discovery) Choose() (target string, port uint16) {
 	serversCopy := make([]Server, len(d.servers))
 	copy(serversCopy, d.servers)
 
-	if i := d.Balancer.Balance(serversCopy); i >= 0 && i < len(d.servers) {
+	d.balancerLock.RLock()
+	i := d.balancer.Balance(serversCopy)
+	d.balancerLock.RUnlock()
+
+	if i >= 0 && i < len(d.servers) {
 		d.servers[i].Used++
 		return d.servers[i].Target, d.servers[i].Port
 	}
@@ -192,13 +268,45 @@ func (d *Discovery) Choose() (target string, port uint16) {
 
 // Errors return all errors found during asynchronous executions. Once this
 // method is called the internal errors buffer is cleared.
-func (d *Discovery) Errors() []error {
+func (d *discovery) Errors() []error {
 	d.errorsLock.Lock()
 	defer d.errorsLock.Unlock()
 
 	errs := d.errors
 	d.errors = nil
 	return errs
+}
+
+// SetRetriever changes how the library retrieves the DNS SRV records. It is go
+// routine safe.
+func (d *discovery) SetRetriever(r retriever) {
+	d.retrieverLock.Lock()
+	defer d.retrieverLock.Unlock()
+	d.retriever = r
+}
+
+// SetHealthChecker changes the way the library health check each server. It is
+// go routine safe.
+func (d *discovery) SetHealthChecker(h healthChecker) {
+	d.healthCheckerLock.Lock()
+	defer d.healthCheckerLock.Unlock()
+	d.healthChecker = h
+}
+
+// SetHealthCheckerTTL changes the health check TTL that avoids an aggressive
+// verification. It is go routine safe.
+func (d *discovery) SetHealthCheckerTTL(ttl time.Duration) {
+	d.healthCheckerTTLLock.Lock()
+	defer d.healthCheckerTTLLock.Unlock()
+	d.healthCheckerTTL = ttl
+}
+
+// SetBalancer changes how the library selects the best server. It is go routine
+// safe.
+func (d *discovery) SetBalancer(b balancer) {
+	d.balancerLock.Lock()
+	defer d.balancerLock.Unlock()
+	d.balancer = b
 }
 
 // retriever allows the library user to define a custom DNS retrieve algorithm.

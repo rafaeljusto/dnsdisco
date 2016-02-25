@@ -284,8 +284,8 @@ func TestDiscoverDefaultBalancer(t *testing.T) {
 
 	for i, item := range scenarios {
 		discovery := dnsdisco.NewDiscovery(item.service, item.proto, item.name)
-		discovery.Retriever = item.retriever
-		discovery.HealthChecker = item.healthChecker
+		discovery.SetRetriever(item.retriever)
+		discovery.SetHealthChecker(item.healthChecker)
 
 		if err := discovery.Refresh(); err != nil {
 			t.Errorf("scenario %d, “%s”: unexpected error while retrieving DNS records. Details: %s",
@@ -424,8 +424,8 @@ func TestDiscoverDefaultHealthChecker(t *testing.T) {
 
 	for i, item := range scenarios {
 		discovery := dnsdisco.NewDiscovery(item.service, item.proto, item.name)
-		discovery.Retriever = item.retriever
-		discovery.Balancer = item.balancer
+		discovery.SetRetriever(item.retriever)
+		discovery.SetBalancer(item.balancer)
 
 		if err := discovery.Refresh(); err != nil {
 			t.Errorf("scenario %d, “%s”: unexpected error while retrieving DNS records. Details: %s",
@@ -442,6 +442,92 @@ func TestDiscoverDefaultHealthChecker(t *testing.T) {
 		if port != item.expectedPort {
 			t.Errorf("scenario %d, “%s”: mismatch ports. Expecting: “%d”; found “%d”",
 				i, item.description, item.expectedPort, port)
+		}
+	}
+}
+
+func TestDiscoverHealthCheckerTTL(t *testing.T) {
+	ln, err := startTCPTestServer()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer ln.Close()
+
+	testServerHost, p, err := net.SplitHostPort(ln.Addr().String())
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	testServerPort, err := strconv.ParseUint(p, 10, 16)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	scenarios := []struct {
+		description      string
+		service          string
+		proto            string
+		name             string
+		retriever        dnsdisco.RetrieverFunc
+		healthCheckerTTL time.Duration
+		balancer         dnsdisco.BalancerFunc
+		rerun            int
+		expectedCalls    int
+	}{
+		{
+			description: "it should avoid calling the health check more than once in the TTL period",
+			service:     "jabber",
+			proto:       "tcp",
+			name:        "registro.br",
+			retriever: dnsdisco.RetrieverFunc(func(service, proto, name string) ([]*net.SRV, error) {
+				return []*net.SRV{
+					{
+						Target:   testServerHost,
+						Port:     uint16(testServerPort),
+						Priority: 10,
+						Weight:   20,
+					},
+				}, nil
+			}),
+			healthCheckerTTL: 1 * time.Second,
+			balancer: dnsdisco.BalancerFunc(func(servers []dnsdisco.Server) (index int) {
+				for i, server := range servers {
+					if server.LastHealthCheck {
+						return i
+					}
+				}
+
+				return -1
+			}),
+			rerun:         1,
+			expectedCalls: 1,
+		},
+	}
+
+	for i, item := range scenarios {
+		discovery := dnsdisco.NewDiscovery(item.service, item.proto, item.name)
+		discovery.SetRetriever(item.retriever)
+		discovery.SetHealthCheckerTTL(item.healthCheckerTTL)
+		discovery.SetBalancer(item.balancer)
+
+		calls := 0
+		discovery.SetHealthChecker(dnsdisco.HealthCheckerFunc(func(target string, port uint16, proto string) (ok bool, err error) {
+			calls++
+			return true, nil
+		}))
+
+		if err := discovery.Refresh(); err != nil {
+			t.Errorf("scenario %d, “%s”: unexpected error while retrieving DNS records. Details: %s",
+				i, item.description, err)
+		}
+
+		for j := 0; j <= item.rerun; j++ {
+			discovery.Choose()
+		}
+
+		if calls != item.expectedCalls {
+			t.Errorf("scenario %d, “%s”: mismatch health check calls. Expecting: “%d”; found “%d”",
+				i, item.description, item.expectedCalls, calls)
 		}
 	}
 }
@@ -553,8 +639,8 @@ func TestRefreshAsync(t *testing.T) {
 
 	for i, item := range scenarios {
 		discovery := dnsdisco.NewDiscovery(item.service, item.proto, item.name)
-		discovery.Retriever = item.retriever
-		discovery.HealthChecker = item.healthChecker
+		discovery.SetRetriever(item.retriever)
+		discovery.SetHealthChecker(item.healthChecker)
 
 		finish := discovery.RefreshAsync(item.refreshInterval)
 		time.Sleep(item.refreshInterval + (50 * time.Millisecond))
@@ -603,11 +689,11 @@ func ExampleDiscovery_RefreshAsync() {
 	// answer from the network
 	retrieved := make(chan bool)
 
-	discovery.Retriever = dnsdisco.RetrieverFunc(func(service, proto, name string) (servers []*net.SRV, err error) {
+	discovery.SetRetriever(dnsdisco.RetrieverFunc(func(service, proto, name string) (servers []*net.SRV, err error) {
 		_, servers, err = net.LookupSRV(service, proto, name)
 		retrieved <- true
 		return
-	})
+	}))
 
 	// refresh the SRV records every 100 milliseconds
 	stopRefresh := discovery.RefreshAsync(100 * time.Millisecond)
@@ -629,7 +715,7 @@ func ExampleDiscovery_RefreshAsync() {
 // ExampleRetrieverFunc uses a specific resolver with custom timeouts
 func ExampleRetrieverFunc() {
 	discovery := dnsdisco.NewDiscovery("jabber", "tcp", "registro.br")
-	discovery.Retriever = dnsdisco.RetrieverFunc(func(service, proto, name string) (servers []*net.SRV, err error) {
+	discovery.SetRetriever(dnsdisco.RetrieverFunc(func(service, proto, name string) (servers []*net.SRV, err error) {
 		client := dns.Client{
 			ReadTimeout:  2 * time.Second,
 			WriteTimeout: 2 * time.Second,
@@ -659,7 +745,7 @@ func ExampleRetrieverFunc() {
 		}
 
 		return
-	})
+	}))
 
 	// Retrieve the servers
 	if err := discovery.Refresh(); err != nil {
@@ -680,7 +766,7 @@ func ExampleRetrieverFunc() {
 // attribute.
 func ExampleBalancerFunc() {
 	discovery := dnsdisco.NewDiscovery("jabber", "tcp", "registro.br")
-	discovery.Balancer = dnsdisco.BalancerFunc(func(servers []dnsdisco.Server) (index int) {
+	discovery.SetBalancer(dnsdisco.BalancerFunc(func(servers []dnsdisco.Server) (index int) {
 		minimum := -1
 		for _, server := range servers {
 			if server.Used < minimum || minimum == -1 {
@@ -695,7 +781,7 @@ func ExampleBalancerFunc() {
 		}
 
 		return -1
-	})
+	}))
 
 	// Retrieve the servers
 	if err := discovery.Refresh(); err != nil {
@@ -715,14 +801,14 @@ func ExampleBalancerFunc() {
 // HTTP status code.
 func ExampleHealthCheckerFunc() {
 	discovery := dnsdisco.NewDiscovery("http", "tcp", "pantz.org")
-	discovery.HealthChecker = dnsdisco.HealthCheckerFunc(func(target string, port uint16, proto string) (ok bool, err error) {
+	discovery.SetHealthChecker(dnsdisco.HealthCheckerFunc(func(target string, port uint16, proto string) (ok bool, err error) {
 		response, err := http.Get("http://www.pantz.org")
 		if err != nil {
 			return false, err
 		}
 
 		return response.StatusCode == http.StatusOK, nil
-	})
+	}))
 
 	// Retrieve the servers
 	if err := discovery.Refresh(); err != nil {
@@ -740,11 +826,11 @@ func ExampleHealthCheckerFunc() {
 
 func BenchmarkBalancer(b *testing.B) {
 	discovery := dnsdisco.NewDiscovery("jabber", "tcp", "registro.br")
-	discovery.HealthChecker = dnsdisco.HealthCheckerFunc(func(target string, port uint16, proto string) (ok bool, err error) {
+	discovery.SetHealthChecker(dnsdisco.HealthCheckerFunc(func(target string, port uint16, proto string) (ok bool, err error) {
 		return true, nil
-	})
+	}))
 
-	discovery.Retriever = dnsdisco.RetrieverFunc(func(service, proto, name string) ([]*net.SRV, error) {
+	discovery.SetRetriever(dnsdisco.RetrieverFunc(func(service, proto, name string) ([]*net.SRV, error) {
 		return []*net.SRV{
 			{
 				Target:   "server1.example.com.",
@@ -777,7 +863,7 @@ func BenchmarkBalancer(b *testing.B) {
 				Priority: 60,
 			},
 		}, nil
-	})
+	}))
 
 	// Retrieve the servers
 	if err := discovery.Refresh(); err != nil {
