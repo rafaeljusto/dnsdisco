@@ -46,7 +46,7 @@ func (d *defaultLoadBalancer) LoadBalance(servers []Server) (index int) {
 		selectedServers := serversByPriority[priority]
 
 		for _, server := range selectedServers {
-			if server.Used < minimumUsed || minimumUsed == -1 {
+			if (server.Used < minimumUsed || minimumUsed == -1) && server.LastHealthCheck {
 				minimumUsed = server.Used
 			}
 		}
@@ -57,9 +57,10 @@ func (d *defaultLoadBalancer) LoadBalance(servers []Server) (index int) {
 	for _, priority := range priorities {
 		selectedServers := serversByPriority[priority]
 
-		// remove servers that are selected frequently
+		// remove servers that are selected frequently or are feeling well (health
+		// check)
 		for i := len(selectedServers) - 1; i >= 0; i-- {
-			if selectedServers[i].Used > minimumUsed {
+			if selectedServers[i].Used > minimumUsed || !selectedServers[i].LastHealthCheck {
 				selectedServers = append(selectedServers[:i], selectedServers[i+1:]...)
 			}
 		}
@@ -80,7 +81,7 @@ func (d *defaultLoadBalancer) LoadBalance(servers []Server) (index int) {
 		for i, weight := range selectedServersWeight {
 			// select the RR whose running sum value is the first in the selected
 			// order which is greater than or equal to the random number selected
-			if weight < randomNumber || !selectedServers[i].LastHealthCheck {
+			if weight < randomNumber {
 				continue
 			}
 

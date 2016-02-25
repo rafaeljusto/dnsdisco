@@ -22,7 +22,7 @@ func TestDefaultLoadBalancer(t *testing.T) {
 		expectedPort   uint16
 	}{
 		{
-			description: "it should retrieve the target correctly (fallback inside priority group)",
+			description: "it should fallback inside priority group",
 			service:     "jabber",
 			proto:       "tcp",
 			name:        "registro.br",
@@ -49,7 +49,7 @@ func TestDefaultLoadBalancer(t *testing.T) {
 			expectedPort:   2222,
 		},
 		{
-			description: "it should retrieve the target correctly (fallback to other priority group by health check)",
+			description: "it should fallback to other priority group by health check",
 			service:     "jabber",
 			proto:       "tcp",
 			name:        "registro.br",
@@ -88,7 +88,7 @@ func TestDefaultLoadBalancer(t *testing.T) {
 			expectedPort:   4444,
 		},
 		{
-			description: "it should retrieve the target correctly (fallback to other priority group by used counter)",
+			description: "it should fallback to other priority group by used counter",
 			service:     "jabber",
 			proto:       "tcp",
 			name:        "registro.br",
@@ -128,7 +128,7 @@ func TestDefaultLoadBalancer(t *testing.T) {
 			expectedPort:   4444,
 		},
 		{
-			description: "it should retrieve the target correctly (use the less used server)",
+			description: "it should select the less used server",
 			service:     "jabber",
 			proto:       "tcp",
 			name:        "registro.br",
@@ -215,6 +215,34 @@ func TestDefaultLoadBalancer(t *testing.T) {
 			}),
 			expectedTarget: "",
 			expectedPort:   0,
+		},
+		{
+			description: "it should ignore a sick server",
+			service:     "jabber",
+			proto:       "tcp",
+			name:        "registro.br",
+			retriever: dnsdisco.RetrieverFunc(func(service, proto, name string) ([]*net.SRV, error) {
+				return []*net.SRV{
+					{
+						Target:   "server1.example.com.",
+						Port:     1111,
+						Priority: 1,
+						Weight:   20,
+					},
+					{
+						Target:   "server2.example.com.",
+						Port:     2222,
+						Priority: 2,
+						Weight:   20,
+					},
+				}, nil
+			}),
+			healthChecker: dnsdisco.HealthCheckerFunc(func(target string, port uint16, proto string) (ok bool, err error) {
+				return target == "server1.example.com.", nil
+			}),
+			rerun:          1,
+			expectedTarget: "server1.example.com.",
+			expectedPort:   1111,
 		},
 	}
 
