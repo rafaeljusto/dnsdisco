@@ -1,16 +1,22 @@
 package dnsdisco
 
-import "time"
-
-const (
-	// defaultHealthCheckerTTL stores the default cache duration of the health
-	// check result for a specific server.
-	defaultHealthCheckerTTL = 5 * time.Second
-)
+import "net"
 
 // defaultLoadBalancer is the default implementation used when the library
 // client doesn't replace using the SetLoadBalancer method.
 type defaultLoadBalancer struct {
+	servers []defaultLoadBalancerServer
+}
+
+// ChangeServers will be called anytime that a new set of servers is retrieved.
+// The library grantees that this is go routine safe.
+func (d *defaultLoadBalancer) ChangeServers(servers []*net.SRV) {
+	d.servers = nil
+	for _, server := range servers {
+		d.servers = append(d.servers, defaultLoadBalancerServer{
+			SRV: *server,
+		})
+	}
 }
 
 // LoadBalance follows the algorithm described in the RFC 2782, based on the
@@ -31,27 +37,26 @@ type defaultLoadBalancer struct {
 //
 // The algorithm assumes that the servers slice is already sorted by priority
 // and randomized by weight within a priority.
-func (d defaultLoadBalancer) LoadBalance(servers []Server) (index int) {
-	var selectedServers []serverWeight
+func (d defaultLoadBalancer) LoadBalance() (target string, port uint16) {
+	var selectedServers []defaultLoadBalancerServer
 	var totalWeight int
 
 	priority := -1
-	minimumUse := d.getServersMinimumUse(servers)
+	minimumUse := d.getServersMinimumUse()
 
-	for i, server := range servers {
+	for i, server := range d.servers {
 		// detect priority change
 		if priority != -1 && priority != int(server.Priority) {
 			break
 		}
 
-		if server.Used == minimumUse && server.LastHealthCheck {
+		if server.selected == minimumUse {
 			priority = int(server.Priority)
 			totalWeight += int(server.Weight)
-			selectedServers = append(selectedServers, serverWeight{
-				Server:        server,
-				weight:        totalWeight,
-				originalIndex: i,
-			})
+
+			server.weightSum = totalWeight
+			server.originalIndex = i
+			selectedServers = append(selectedServers, server)
 		}
 	}
 
@@ -61,34 +66,39 @@ func (d defaultLoadBalancer) LoadBalance(servers []Server) (index int) {
 	for _, server := range selectedServers {
 		// select the RR whose running sum value is the first in the selected
 		// order which is greater than or equal to the random number selected
-		if server.weight >= randomNumber {
-			return server.originalIndex
+		if server.weightSum >= randomNumber {
+			d.servers[server.originalIndex].selected++
+			return server.Target, server.Port
 		}
 	}
 
-	return -1
+	return "", 0
 }
 
 // getServersMinimumUse returns the minimum number of times that a server was
 // selected. If no server is available -1 is returned.
-func (d defaultLoadBalancer) getServersMinimumUse(servers []Server) int {
+func (d defaultLoadBalancer) getServersMinimumUse() int {
 	minimumUsed := -1
-	for _, server := range servers {
-		if (server.Used < minimumUsed || minimumUsed == -1) && server.LastHealthCheck {
-			minimumUsed = server.Used
+	for _, server := range d.servers {
+		if server.selected < minimumUsed || minimumUsed == -1 {
+			minimumUsed = server.selected
 		}
 	}
 	return minimumUsed
 }
 
-// serverWeight stores a server type plus some additional data useful for
-// selecting the server according the RFC 2782 algorithm.
-type serverWeight struct {
-	Server
+// defaultLoadBalancerServer stores a server type plus some additional data
+// useful for selecting the server according the RFC 2782 algorithm.
+type defaultLoadBalancerServer struct {
+	net.SRV
 
-	// weight compute the sum of the weights of the running sum in the selected
+	// weightSum compute the sum of the weights of the running sum in the selected
 	// order.
-	weight int
+	weightSum int
+
+	// selected is the number of times that a server was selected by the load
+	// balancer algorithm.
+	selected int
 
 	// originalIndex stores the index reference from the original slice of
 	// servers.

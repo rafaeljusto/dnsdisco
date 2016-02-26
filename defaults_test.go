@@ -298,7 +298,7 @@ func TestDefaultHealthChecker(t *testing.T) {
 		proto          string
 		name           string
 		retriever      dnsdisco.RetrieverFunc
-		loadBalancer   dnsdisco.LoadBalancerFunc
+		loadBalancer   loadBalacerMock
 		expectedTarget string
 		expectedPort   uint16
 		expectedError  error
@@ -318,15 +318,21 @@ func TestDefaultHealthChecker(t *testing.T) {
 					},
 				}, nil
 			}),
-			loadBalancer: dnsdisco.LoadBalancerFunc(func(servers []dnsdisco.Server) (index int) {
-				for i, server := range servers {
-					if server.LastHealthCheck {
-						return i
-					}
-				}
+			loadBalancer: func() loadBalacerMock {
+				var savedServers []*net.SRV
+				return loadBalacerMock{
+					MockChangeServers: func(servers []*net.SRV) {
+						savedServers = servers
+					},
+					MockLoadBalance: func() (target string, port uint16) {
+						if len(savedServers) > 0 {
+							return savedServers[0].Target, savedServers[0].Port
+						}
 
-				return -1
-			}),
+						return "", 0
+					},
+				}
+			}(),
 			expectedTarget: testServerHost,
 			expectedPort:   uint16(testServerPort),
 		},
@@ -345,15 +351,21 @@ func TestDefaultHealthChecker(t *testing.T) {
 					},
 				}, nil
 			}),
-			loadBalancer: dnsdisco.LoadBalancerFunc(func(servers []dnsdisco.Server) (index int) {
-				for i, server := range servers {
-					if server.LastHealthCheck {
-						return i
-					}
-				}
+			loadBalancer: func() loadBalacerMock {
+				var savedServers []*net.SRV
+				return loadBalacerMock{
+					MockChangeServers: func(servers []*net.SRV) {
+						savedServers = servers
+					},
+					MockLoadBalance: func() (target string, port uint16) {
+						if len(savedServers) > 0 {
+							return savedServers[0].Target, savedServers[0].Port
+						}
 
-				return -1
-			}),
+						return "", 0
+					},
+				}
+			}(),
 			expectedTarget: "",
 			expectedPort:   0,
 		},
@@ -372,15 +384,21 @@ func TestDefaultHealthChecker(t *testing.T) {
 					},
 				}, nil
 			}),
-			loadBalancer: dnsdisco.LoadBalancerFunc(func(servers []dnsdisco.Server) (index int) {
-				for i, server := range servers {
-					if server.LastHealthCheck {
-						return i
-					}
-				}
+			loadBalancer: func() loadBalacerMock {
+				var savedServers []*net.SRV
+				return loadBalacerMock{
+					MockChangeServers: func(servers []*net.SRV) {
+						savedServers = servers
+					},
+					MockLoadBalance: func() (target string, port uint16) {
+						if len(savedServers) > 0 {
+							return savedServers[0].Target, savedServers[0].Port
+						}
 
-				return -1
-			}),
+						return "", 0
+					},
+				}
+			}(),
 			expectedTarget: "",
 			expectedPort:   0,
 		},
@@ -492,4 +510,24 @@ func startTCPTestServer() (net.Listener, error) {
 	}()
 
 	return ln, nil
+}
+
+// loadBalacerMock creates an easy way to test a load balancer.
+type loadBalacerMock struct {
+	// MockChangeServers will be called anytime that a new set of servers is
+	// retrieved.
+	MockChangeServers func(servers []*net.SRV)
+
+	// MockLoadBalance will choose the best target.
+	MockLoadBalance func() (target string, port uint16)
+}
+
+// ChangeServers will be called anytime that a new set of servers is retrieved.
+func (l loadBalacerMock) ChangeServers(servers []*net.SRV) {
+	l.MockChangeServers(servers)
+}
+
+// LoadBalance will choose the best target.
+func (l loadBalacerMock) LoadBalance() (target string, port uint16) {
+	return l.MockLoadBalance()
 }
