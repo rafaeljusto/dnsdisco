@@ -179,6 +179,9 @@ func (d *discovery) Refresh() error {
 // RefreshAsync works exactly as Refresh, but is non-blocking and will repeat
 // the action on every interval. To stop the refresh the returned channel must
 // be closed.
+//
+// The interval should be at least the TTL of the SRV records, or you will
+// retrieve cached information.
 func (d *discovery) RefreshAsync(interval time.Duration) chan<- bool {
 	finish := make(chan bool)
 
