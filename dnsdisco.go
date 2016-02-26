@@ -1,7 +1,6 @@
 package dnsdisco
 
 import (
-	"fmt"
 	"math/rand"
 	"net"
 	"sort"
@@ -123,30 +122,12 @@ type discovery struct {
 // number of DNS requests.
 func NewDiscovery(service, proto, name string) Discovery {
 	return &discovery{
-		service: service,
-		name:    name,
-		proto:   proto,
-
-		retriever: RetrieverFunc(func(service, proto, name string) (servers []*net.SRV, err error) {
-			_, servers, err = net.LookupSRV(service, proto, name)
-			return
-		}),
-
-		healthChecker: HealthCheckerFunc(func(target string, port uint16, proto string) (ok bool, err error) {
-			address := fmt.Sprintf("%s:%d", target, port)
-			if proto != "tcp" && proto != "udp" {
-				return false, net.UnknownNetworkError(proto)
-			}
-
-			conn, err := net.Dial(proto, address)
-			if err != nil {
-				return false, err
-			}
-			conn.Close()
-			return true, nil
-		}),
-
-		loadBalancer: new(defaultLoadBalancer),
+		service:       service,
+		name:          name,
+		proto:         proto,
+		retriever:     DefaultRetriever,
+		healthChecker: DefaultHealthChecker,
+		loadBalancer:  DefaultLoadBalancer,
 	}
 }
 

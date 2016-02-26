@@ -1,6 +1,38 @@
 package dnsdisco
 
-import "net"
+import (
+	"fmt"
+	"net"
+)
+
+var (
+	// DefaultRetriever uses the local resolver to retrieve the SRV records.
+	DefaultRetriever = RetrieverFunc(func(service, proto, name string) (servers []*net.SRV, err error) {
+		_, servers, err = net.LookupSRV(service, proto, name)
+		return
+	})
+
+	// DefaultHealthChecker try to do a simple connection to the server. If the
+	// connection is successful the health check pass, otherwise it fails with an
+	// error. Possible proto values are tcp or udp.
+	DefaultHealthChecker = HealthCheckerFunc(func(target string, port uint16, proto string) (ok bool, err error) {
+		address := fmt.Sprintf("%s:%d", target, port)
+		if proto != "tcp" && proto != "udp" {
+			return false, net.UnknownNetworkError(proto)
+		}
+
+		conn, err := net.Dial(proto, address)
+		if err != nil {
+			return false, err
+		}
+		conn.Close()
+		return true, nil
+	})
+
+	// DefaultLoadBalancer select the best server based on the RFC 2782 algorithm.
+	// If no server is selected an empty target and a zero port is returned.
+	DefaultLoadBalancer = new(defaultLoadBalancer)
+)
 
 // defaultLoadBalancer is the default implementation used when the library
 // client doesn't replace using the SetLoadBalancer method.
