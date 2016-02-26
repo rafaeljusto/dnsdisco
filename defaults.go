@@ -1,18 +1,11 @@
 package dnsdisco
 
-import (
-	"math/rand"
-	"time"
-)
+import "time"
 
 const (
 	// defaultHealthCheckerTTL stores the default cache duration of the health
 	// check result for a specific server.
 	defaultHealthCheckerTTL = 5 * time.Second
-)
-
-var (
-	randomSource = rand.New(rand.NewSource(time.Now().UnixNano()))
 )
 
 // defaultLoadBalancer is the default implementation used when the library
@@ -39,12 +32,11 @@ type defaultLoadBalancer struct {
 // The algorithm assumes that the servers slice is already sorted by priority
 // and randomized by weight within a priority.
 func (d defaultLoadBalancer) LoadBalance(servers []Server) (index int) {
-	// detect the servers that weren't selected so frequently
-	minimumUse := d.getServersMinimumUse(servers)
-
 	var selectedServers []serverWeight
 	var totalWeight int
+
 	priority := -1
+	minimumUse := d.getServersMinimumUse(servers)
 
 	for i, server := range servers {
 		// detect priority change
@@ -69,11 +61,9 @@ func (d defaultLoadBalancer) LoadBalance(servers []Server) (index int) {
 	for _, server := range selectedServers {
 		// select the RR whose running sum value is the first in the selected
 		// order which is greater than or equal to the random number selected
-		if server.weight < randomNumber {
-			continue
+		if server.weight >= randomNumber {
+			return server.originalIndex
 		}
-
-		return server.originalIndex
 	}
 
 	return -1

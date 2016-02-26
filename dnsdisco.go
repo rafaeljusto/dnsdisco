@@ -2,9 +2,15 @@ package dnsdisco
 
 import (
 	"fmt"
+	"math/rand"
 	"net"
+	"sort"
 	"sync"
 	"time"
+)
+
+var (
+	randomSource = rand.New(rand.NewSource(time.Now().UnixNano()))
 )
 
 // Discover is the fastest way to find a target using all the default
@@ -162,7 +168,9 @@ func NewDiscovery(service, proto, name string) Discovery {
 
 // Refresh retrieves the servers using the DNS SRV solution. It is possible to
 // change the default behaviour (local resolver with default timeouts) using
-// the SetRetriever method from the Discovery interface.
+// the SetRetriever method from the Discovery interface. When the new servers
+// are retrieved, a health check is done on each server and the list of servers
+// is sort by priority and weight.
 func (d *discovery) Refresh() error {
 	d.retrieverLock.RLock()
 	servers, err := d.retriever.Retrieve(d.service, d.proto, d.name)
@@ -177,11 +185,31 @@ func (d *discovery) Refresh() error {
 
 	d.servers = nil
 	for _, srv := range servers {
-		d.servers = append(d.servers, Server{
+		server := Server{
 			SRV: *srv,
-		})
+		}
+
+		// check the healthy of the retrieved server
+
+		d.healthCheckerLock.RLock()
+		ok, err := d.healthChecker.HealthCheck(server.Target, server.Port, d.proto)
+		d.healthCheckerLock.RUnlock()
+
+		if err != nil {
+			d.errorsLock.Lock()
+			d.errors = append(d.errors, err)
+			d.errorsLock.Unlock()
+		}
+
+		server.LastHealthCheck = err == nil && ok
+		server.lastHealthCheckAt = time.Now()
+		d.servers = append(d.servers, server)
 	}
 
+	// the default retriever already do the sort for us (lookupSRV), but if it's
+	// replaced for other algorithm the library needs to ensure that it is
+	// ordered, because the default load balancer algorithm depends on that
+	byPriorityWeight(d.servers).sort()
 	return nil
 }
 
@@ -369,4 +397,59 @@ type Server struct {
 	// to determinate if this server will be chosen again in the future by the
 	// load balancer algorithm.
 	Used int
+}
+
+// byPriorityWeight was retrieved from file "net/dnsclient.go" of the standard
+// library. It is responsible for ordering the servers by priority and weight.
+type byPriorityWeight []Server
+
+// Len returns the size of the slice of servers.
+func (servers byPriorityWeight) Len() int { return len(servers) }
+
+// Less returns the server preceding server when analyzing two of them.
+func (servers byPriorityWeight) Less(i, j int) bool {
+	return servers[i].Priority < servers[j].Priority ||
+		(servers[i].Priority == servers[j].Priority && servers[i].Weight < servers[j].Weight)
+}
+
+// Swap exchange the servers in the slice.
+func (servers byPriorityWeight) Swap(i, j int) {
+	servers[i], servers[j] = servers[j], servers[i]
+}
+
+// shuffleByWeight shuffles SRV records by weight using the algorithm
+// described in RFC 2782.
+func (servers byPriorityWeight) shuffleByWeight() {
+	sum := 0
+	for _, addr := range servers {
+		sum += int(addr.Weight)
+	}
+	for sum > 0 && len(servers) > 1 {
+		s := 0
+		n := randomSource.Intn(sum)
+		for i := range servers {
+			s += int(servers[i].Weight)
+			if s > n {
+				if i > 0 {
+					servers[0], servers[i] = servers[i], servers[0]
+				}
+				break
+			}
+		}
+		sum -= int(servers[0].Weight)
+		servers = servers[1:]
+	}
+}
+
+// sort reorders SRV records as specified in RFC 2782.
+func (servers byPriorityWeight) sort() {
+	sort.Sort(servers)
+	i := 0
+	for j := 1; j < len(servers); j++ {
+		if servers[i].Priority != servers[j].Priority {
+			servers[i:j].shuffleByWeight()
+			i = j
+		}
+	}
+	servers[i:].shuffleByWeight()
 }

@@ -5,7 +5,6 @@ import (
 	"net"
 	"net/http"
 	"reflect"
-	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -74,32 +73,18 @@ func TestDiscover(t *testing.T) {
 }
 
 func TestHealthCheckerTTL(t *testing.T) {
-	ln, err := startTCPTestServer()
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer ln.Close()
-
-	testServerHost, p, err := net.SplitHostPort(ln.Addr().String())
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	testServerPort, err := strconv.ParseUint(p, 10, 16)
-	if err != nil {
-		t.Fatal(err)
-	}
-
 	scenarios := []struct {
-		description      string
-		service          string
-		proto            string
-		name             string
-		retriever        dnsdisco.RetrieverFunc
-		healthCheckerTTL time.Duration
-		loadBalancer     dnsdisco.LoadBalancerFunc
-		rerun            int
-		expectedCalls    int
+		description        string
+		service            string
+		proto              string
+		name               string
+		retriever          dnsdisco.RetrieverFunc
+		healthCheckerTTL   time.Duration
+		healthCheckerError error
+		loadBalancer       dnsdisco.LoadBalancerFunc
+		rerun              int
+		expectedCalls      int
+		expectedErrors     []error
 	}{
 		{
 			description: "it should avoid calling the health check more than once in the TTL period",
@@ -109,14 +94,14 @@ func TestHealthCheckerTTL(t *testing.T) {
 			retriever: dnsdisco.RetrieverFunc(func(service, proto, name string) ([]*net.SRV, error) {
 				return []*net.SRV{
 					{
-						Target:   testServerHost,
-						Port:     uint16(testServerPort),
+						Target:   "example.com",
+						Port:     uint16(1111),
 						Priority: 10,
 						Weight:   20,
 					},
 				}, nil
 			}),
-			healthCheckerTTL: 1 * time.Second,
+			healthCheckerTTL: 100 * time.Millisecond,
 			loadBalancer: dnsdisco.LoadBalancerFunc(func(servers []dnsdisco.Server) (index int) {
 				for i, server := range servers {
 					if server.LastHealthCheck {
@@ -127,7 +112,36 @@ func TestHealthCheckerTTL(t *testing.T) {
 				return -1
 			}),
 			rerun:         1,
-			expectedCalls: 1,
+			expectedCalls: 2,
+		},
+		{
+			description: "it should detect a health check error",
+			service:     "jabber",
+			proto:       "tcp",
+			name:        "registro.br",
+			retriever: dnsdisco.RetrieverFunc(func(service, proto, name string) ([]*net.SRV, error) {
+				return []*net.SRV{
+					{
+						Target:   "example.com",
+						Port:     uint16(1111),
+						Priority: 10,
+						Weight:   20,
+					},
+				}, nil
+			}),
+			healthCheckerTTL:   100 * time.Millisecond,
+			healthCheckerError: fmt.Errorf("error example"),
+			loadBalancer: dnsdisco.LoadBalancerFunc(func(servers []dnsdisco.Server) (index int) {
+				for i, server := range servers {
+					if server.LastHealthCheck {
+						return i
+					}
+				}
+
+				return -1
+			}),
+			expectedCalls:  2,
+			expectedErrors: []error{fmt.Errorf("error example"), fmt.Errorf("error example")},
 		},
 	}
 
@@ -140,13 +154,16 @@ func TestHealthCheckerTTL(t *testing.T) {
 		calls := 0
 		discovery.SetHealthChecker(dnsdisco.HealthCheckerFunc(func(target string, port uint16, proto string) (ok bool, err error) {
 			calls++
-			return true, nil
+			return item.healthCheckerError == nil, item.healthCheckerError
 		}))
 
 		if err := discovery.Refresh(); err != nil {
 			t.Errorf("scenario %d, “%s”: unexpected error while retrieving DNS records. Details: %s",
 				i, item.description, err)
 		}
+
+		// force the health check on the first Choose run
+		time.Sleep(item.healthCheckerTTL)
 
 		for j := 0; j <= item.rerun; j++ {
 			discovery.Choose()
@@ -155,6 +172,12 @@ func TestHealthCheckerTTL(t *testing.T) {
 		if calls != item.expectedCalls {
 			t.Errorf("scenario %d, “%s”: mismatch health check calls. Expecting: “%d”; found “%d”",
 				i, item.description, item.expectedCalls, calls)
+		}
+
+		errs := discovery.Errors()
+		if !reflect.DeepEqual(errs, item.expectedErrors) {
+			t.Errorf("scenario %d, “%s”: mismatch errors. Expecting: “%v”; found “%v”",
+				i, item.description, item.expectedErrors, errs)
 		}
 	}
 }
@@ -202,16 +225,16 @@ func TestRefreshAsync(t *testing.T) {
 
 					return []*net.SRV{
 						{
-							Target:   "server4.example.com.",
-							Port:     4444,
-							Priority: 10,
-							Weight:   10,
-						},
-						{
 							Target:   "server3.example.com.",
 							Port:     3333,
 							Priority: 15,
 							Weight:   20,
+						},
+						{
+							Target:   "server4.example.com.",
+							Port:     4444,
+							Priority: 10,
+							Weight:   10,
 						},
 					}, nil
 				})
@@ -453,36 +476,4 @@ func ExampleHealthCheckerFunc() {
 	// Output:
 	// Target: www.pantz.org.
 	// Port: 80
-}
-
-// startTCPTestServer initialize a TCP echo server running on any available port
-// of the localhost. The returning listener must be closed to terminate the
-// server.
-func startTCPTestServer() (net.Listener, error) {
-	ln, err := net.Listen("tcp", "127.0.0.1:0")
-	if err != nil {
-		return nil, err
-	}
-
-	go func() {
-		for {
-			c, err := ln.Accept()
-			if err != nil {
-				break
-			}
-			// Server connection.
-			go func(c net.Conn) {
-				defer c.Close()
-				buf := make([]byte, 1024)
-
-				n, err := c.Read(buf)
-				if err != nil {
-					return
-				}
-				c.Write(buf[:n])
-			}(c)
-		}
-	}()
-
-	return ln, nil
 }

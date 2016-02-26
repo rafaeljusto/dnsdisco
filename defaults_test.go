@@ -461,3 +461,35 @@ func BenchmarkDefaultLoadBalancer(b *testing.B) {
 		discovery.Choose()
 	}
 }
+
+// startTCPTestServer initialize a TCP echo server running on any available port
+// of the localhost. The returning listener must be closed to terminate the
+// server.
+func startTCPTestServer() (net.Listener, error) {
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		return nil, err
+	}
+
+	go func() {
+		for {
+			c, err := ln.Accept()
+			if err != nil {
+				break
+			}
+			// Server connection.
+			go func(c net.Conn) {
+				defer c.Close()
+				buf := make([]byte, 1024)
+
+				n, err := c.Read(buf)
+				if err != nil {
+					return
+				}
+				c.Write(buf[:n])
+			}(c)
+		}
+	}()
+
+	return ln, nil
+}
