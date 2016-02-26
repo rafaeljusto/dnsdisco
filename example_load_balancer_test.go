@@ -38,10 +38,10 @@ func (d roundRobinLoadBalancer) LoadBalance() (target string, port uint16) {
 	return server.Target, server.Port
 }
 
-// Example shows how it is possible to replace the default load balancer
-// algorithm with a new one following the round robin strategy
+// Example_loadBalancer shows how it is possible to replace the default load
+// balancer algorithm with a new one following the round robin strategy
 // (https://en.wikipedia.org/wiki/Round-robin_scheduling).
-func Example() {
+func Example_loadBalancer() {
 	discovery := dnsdisco.NewDiscovery("jabber", "tcp", "registro.br")
 	discovery.SetLoadBalancer(new(roundRobinLoadBalancer))
 
