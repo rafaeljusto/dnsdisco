@@ -1,4 +1,4 @@
-// +build dev
+// +build dnsdiscodev
 
 package dnsdisco
 
@@ -22,7 +22,7 @@ var (
 // To make it easy in test environments to test the system without configuring a
 // DNS server, you can compile your project with the following flags:
 //
-//  go build -tags "dev" -ldflags "-X github.com/rafaeljusto/dnsdisco.DevTarget=localhost -X github.com/rafaeljusto/dnsdisco.DevPort=443"
+//   go build -tags "dnsdiscodev" -ldflags "-X github.com/rafaeljusto/dnsdisco.DevTarget=localhost -X github.com/rafaeljusto/dnsdisco.DevPort=443"
 //
 // Where you should replace:
 //   * "localhost" for your server address in the test environment
