@@ -1,15 +1,10 @@
 package dnsdisco
 
 import (
-	"math/rand"
 	"net"
 	"sort"
 	"sync"
 	"time"
-)
-
-var (
-	randomSource = rand.New(rand.NewSource(time.Now().UnixNano()))
 )
 
 // Discover is the fastest way to find a target using all the default
