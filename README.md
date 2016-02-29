@@ -7,7 +7,7 @@ dnsdisco
 [![Coverage Status](https://coveralls.io/repos/github/rafaeljusto/dnsdisco/badge.svg?branch=master)](https://coveralls.io/github/rafaeljusto/dnsdisco?branch=master)
 [![Go Report Card](https://goreportcard.com/badge/github.com/rafaeljusto/dnsdisco)](https://goreportcard.com/report/github.com/rafaeljusto/dnsdisco)
 
-**DNS** service **disco**very library.
+**DNS** service **disco**very library for [Go](https://golang.org) programming language.
 
 ![dnsdisco](https://raw.githubusercontent.com/rafaeljusto/dnsdisco/master/dnsdisco.gif)
 
@@ -54,6 +54,13 @@ Features
 * Has only standard library dependencies (except for tests)
 * Go routine safe
 
+
+Install
+-------
+
+```
+go get -u github.com/rafaeljusto/dnsdisco
+```
 
 Example
 -------
