@@ -10,6 +10,8 @@ import (
 )
 
 func TestDefaultLoadBalancer(t *testing.T) {
+	t.Parallel()
+
 	scenarios := []struct {
 		description    string
 		service        string
@@ -276,6 +278,8 @@ func TestDefaultLoadBalancer(t *testing.T) {
 }
 
 func TestDefaultHealthChecker(t *testing.T) {
+	t.Parallel()
+
 	ln, err := startTCPTestServer()
 	if err != nil {
 		t.Fatal(err)

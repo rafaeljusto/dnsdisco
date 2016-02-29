@@ -14,6 +14,8 @@ import (
 )
 
 func TestDiscover(t *testing.T) {
+	t.Parallel()
+
 	scenarios := []struct {
 		description    string
 		service        string
@@ -73,6 +75,8 @@ func TestDiscover(t *testing.T) {
 }
 
 func TestRefreshAsync(t *testing.T) {
+	t.Parallel()
+
 	scenarios := []struct {
 		description     string
 		service         string
