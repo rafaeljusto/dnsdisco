@@ -2,12 +2,14 @@ dnsdisco
 ========
 
 [![GoDoc](https://godoc.org/github.com/rafaeljusto/dnsdisco?status.png)](https://godoc.org/github.com/rafaeljusto/dnsdisco)
+[![license](http://img.shields.io/badge/license-MIT-blue.svg)](https://raw.githubusercontent.com/rafaeljusto/dnsdisco/master/LICENSE)
 [![Build Status](https://travis-ci.org/rafaeljusto/dnsdisco.png?branch=master)](https://travis-ci.org/rafaeljusto/dnsdisco)
 [![Coverage Status](https://coveralls.io/repos/github/rafaeljusto/dnsdisco/badge.svg?branch=master)](https://coveralls.io/github/rafaeljusto/dnsdisco?branch=master)
 [![Go Report Card](https://goreportcard.com/badge/github.com/rafaeljusto/dnsdisco)](https://goreportcard.com/report/github.com/rafaeljusto/dnsdisco)
 
 **DNS** service **disco**very library.
 
+![dnsdisco](https://raw.githubusercontent.com/rafaeljusto/dnsdisco/master/dnsdisco.gif)
 
 Motivation
 ----------
