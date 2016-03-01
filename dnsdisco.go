@@ -120,9 +120,9 @@ func NewDiscovery(service, proto, name string) Discovery {
 		service:       service,
 		name:          name,
 		proto:         proto,
-		retriever:     DefaultRetriever,
-		healthChecker: DefaultHealthChecker,
-		loadBalancer:  DefaultLoadBalancer,
+		retriever:     NewDefaultRetriever(),
+		healthChecker: NewDefaultHealthChecker(),
+		loadBalancer:  NewDefaultLoadBalancer(),
 	}
 }
 
