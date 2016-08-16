@@ -6,6 +6,7 @@ dnsdisco
 [![Build Status](https://travis-ci.org/rafaeljusto/dnsdisco.png?branch=master)](https://travis-ci.org/rafaeljusto/dnsdisco)
 [![Coverage Status](https://coveralls.io/repos/github/rafaeljusto/dnsdisco/badge.svg?branch=master)](https://coveralls.io/github/rafaeljusto/dnsdisco?branch=master)
 [![Go Report Card](https://goreportcard.com/badge/github.com/rafaeljusto/dnsdisco)](https://goreportcard.com/report/github.com/rafaeljusto/dnsdisco)
+[![codebeat badge](https://codebeat.co/badges/5e9a5cbd-5ed7-4a46-9f63-62a5645d9d3d)](https://codebeat.co/projects/github-com-rafaeljusto-dnsdisco)
 
 **DNS** service **disco**very library for [Go](https://golang.org) programming language.
 
