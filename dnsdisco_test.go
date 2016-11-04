@@ -13,18 +13,27 @@ import (
 	"github.com/rafaeljusto/dnsdisco"
 )
 
+type MainScenarios struct {
+	description    string
+	service        string
+	proto          string
+	name           string
+	expectedTarget string
+	expectedPort   uint16
+	expectedError  error
+}
+
+type derivedScenarios struct {
+	MainScenarios
+	refreshInterval time.Duration
+	retriever       dnsdisco.RetrieverFunc
+	healthChecker   dnsdisco.HealthCheckerFunc
+	expectedErrors  []error
+}
+
 func TestDiscover(t *testing.T) {
 	t.Parallel()
-
-	scenarios := []struct {
-		description    string
-		service        string
-		proto          string
-		name           string
-		expectedTarget string
-		expectedPort   uint16
-		expectedError  error
-	}{
+	m := []MainScenarios{
 		{
 			description:    "it should retrieve the target correctly",
 			service:        "jabber",
@@ -44,29 +53,23 @@ func TestDiscover(t *testing.T) {
 			},
 		},
 	}
-
-	for i, item := range scenarios {
+	for i, item := range m {
 		target, port, err := dnsdisco.Discover(item.service, item.proto, item.name)
-
 		if target != item.expectedTarget {
 			t.Errorf("scenario %d, “%s”: mismatch targets. Expecting: “%s”; found “%s”",
 				i, item.description, item.expectedTarget, target)
 		}
-
 		if port != item.expectedPort {
 			t.Errorf("scenario %d, “%s”: mismatch ports. Expecting: “%d”; found “%d”",
 				i, item.description, item.expectedPort, port)
 		}
-
 		// As the resolver change between machines, we can't guess the DNSError name's attribute. So we
 		// need to inject the value on the expected error
 		dnsError, ok1 := err.(*net.DNSError)
 		expectedDNSError, ok2 := item.expectedError.(*net.DNSError)
-
 		if ok1 && ok2 {
 			expectedDNSError.Server = dnsError.Server
 		}
-
 		if !reflect.DeepEqual(err, item.expectedError) {
 			t.Errorf("scenario %d, “%s”: mismatch errors. Expecting: “%v”; found “%v”",
 				i, item.description, item.expectedError, err)
@@ -76,28 +79,19 @@ func TestDiscover(t *testing.T) {
 
 func TestRefreshAsync(t *testing.T) {
 	t.Parallel()
-
-	scenarios := []struct {
-		description     string
-		service         string
-		proto           string
-		name            string
-		refreshInterval time.Duration
-		retriever       dnsdisco.RetrieverFunc
-		healthChecker   dnsdisco.HealthCheckerFunc
-		expectedTarget  string
-		expectedPort    uint16
-		expectedErrors  []error
-	}{
+	d := []derivedScenarios{
 		{
-			description:     "it should update the servers asynchronously",
-			service:         "jabber",
-			proto:           "tcp",
-			name:            "registro.br",
+			MainScenarios: MainScenarios{
+				description:    "it should update the servers asynchronously",
+				service:        "jabber",
+				proto:          "tcp",
+				name:           "registro.br",
+				expectedTarget: "server4.example.com.",
+				expectedPort:   4444,
+			},
 			refreshInterval: 100 * time.Millisecond,
 			retriever: func() dnsdisco.RetrieverFunc {
 				calls := 0
-
 				return dnsdisco.RetrieverFunc(func(service, proto, name string) ([]*net.SRV, error) {
 					calls++
 					if calls == 1 {
@@ -116,7 +110,6 @@ func TestRefreshAsync(t *testing.T) {
 							},
 						}, nil
 					}
-
 					return []*net.SRV{
 						{
 							Target:   "server3.example.com.",
@@ -136,18 +129,19 @@ func TestRefreshAsync(t *testing.T) {
 			healthChecker: dnsdisco.HealthCheckerFunc(func(target string, port uint16, proto string) (ok bool, err error) {
 				return true, nil
 			}),
-			expectedTarget: "server4.example.com.",
-			expectedPort:   4444,
 		},
 		{
-			description:     "it should fail to retrieve the SRV records",
-			service:         "jabber",
-			proto:           "tcp",
-			name:            "registro.br",
+			MainScenarios: MainScenarios{
+				description:    "it should fail to retrieve the SRV records",
+				service:        "jabber",
+				proto:          "tcp",
+				name:           "registro.br",
+				expectedTarget: "server1.example.com.",
+				expectedPort:   1111,
+			},
 			refreshInterval: 100 * time.Millisecond,
 			retriever: func() dnsdisco.RetrieverFunc {
 				calls := 0
-
 				return dnsdisco.RetrieverFunc(func(service, proto, name string) ([]*net.SRV, error) {
 					calls++
 					if calls == 1 {
@@ -166,46 +160,37 @@ func TestRefreshAsync(t *testing.T) {
 							},
 						}, nil
 					}
-
 					return nil, net.UnknownNetworkError("test")
 				})
 			}(),
 			healthChecker: dnsdisco.HealthCheckerFunc(func(target string, port uint16, proto string) (ok bool, err error) {
 				return true, nil
 			}),
-			expectedTarget: "server1.example.com.",
-			expectedPort:   1111,
 			expectedErrors: []error{
 				net.UnknownNetworkError("test"),
 			},
 		},
 	}
 
-	for i, item := range scenarios {
+	for i, item := range d {
 		discovery := dnsdisco.NewDiscovery(item.service, item.proto, item.name)
 		discovery.SetRetriever(item.retriever)
 		discovery.SetHealthChecker(item.healthChecker)
-
 		finish := discovery.RefreshAsync(item.refreshInterval)
 		time.Sleep(item.refreshInterval + (50 * time.Millisecond))
-
 		target, port := discovery.Choose()
-
 		if target != item.expectedTarget {
 			t.Errorf("scenario %d, “%s”: mismatch targets. Expecting: “%s”; found “%s”",
 				i, item.description, item.expectedTarget, target)
 		}
-
 		if port != item.expectedPort {
 			t.Errorf("scenario %d, “%s”: mismatch ports. Expecting: “%d”; found “%d”",
 				i, item.description, item.expectedPort, port)
 		}
-
 		if errs := discovery.Errors(); !reflect.DeepEqual(errs, item.expectedErrors) {
 			t.Errorf("scenario %d, “%s”: mismatch errors. Expecting: “%#v”; found “%#v”",
 				i, item.description, item.expectedErrors, errs)
 		}
-
 		close(finish)
 	}
 }
@@ -218,9 +203,7 @@ func ExampleDiscover() {
 		fmt.Println(err)
 		return
 	}
-
 	fmt.Printf("Target: %s\nPort: %d\n", target, port)
-
 	// Output:
 	// Target: jabber.registro.br.
 	// Port: 5269
@@ -230,31 +213,25 @@ func ExampleDiscover() {
 // 100 milliseconds.
 func ExampleDiscover_refreshAsync() {
 	discovery := dnsdisco.NewDiscovery("jabber", "tcp", "registro.br")
-
 	// depending on where this examples run the retrieving time differs (DNS RTT),
 	// so as we cannot sleep a deterministic period, to make this test more useful
 	// we are creating a channel to alert the main go routine that we got an
 	// answer from the network
 	retrieved := make(chan bool)
-
 	discovery.SetRetriever(dnsdisco.RetrieverFunc(func(service, proto, name string) (servers []*net.SRV, err error) {
 		_, servers, err = net.LookupSRV(service, proto, name)
 		retrieved <- true
 		return
 	}))
-
 	// refresh the SRV records every 100 milliseconds
 	stopRefresh := discovery.RefreshAsync(100 * time.Millisecond)
 	<-retrieved
-
 	// sleep for a short period only to allow the library to process the SRV
 	// records retrieved from the network
 	time.Sleep(100 * time.Millisecond)
-
 	target, port := discovery.Choose()
 	fmt.Printf("Target: %s\nPort: %d\n", target, port)
 	close(stopRefresh)
-
 	// Output:
 	// Target: jabber.registro.br.
 	// Port: 5269
@@ -268,19 +245,15 @@ func ExampleRetrieverFunc() {
 			ReadTimeout:  2 * time.Second,
 			WriteTimeout: 2 * time.Second,
 		}
-
 		name = strings.TrimRight(name, ".")
 		z := fmt.Sprintf("_%s._%s.%s.", service, proto, name)
-
 		var request dns.Msg
 		request.SetQuestion(z, dns.TypeSRV)
 		request.RecursionDesired = true
-
 		response, _, err := client.Exchange(&request, "8.8.8.8:53")
 		if err != nil {
 			return nil, err
 		}
-
 		for _, rr := range response.Answer {
 			if srv, ok := rr.(*dns.SRV); ok {
 				servers = append(servers, &net.SRV{
@@ -291,7 +264,6 @@ func ExampleRetrieverFunc() {
 				})
 			}
 		}
-
 		return
 	}))
 
@@ -300,10 +272,8 @@ func ExampleRetrieverFunc() {
 		fmt.Println(err)
 		return
 	}
-
 	target, port := discovery.Choose()
 	fmt.Printf("Target: %s\nPort: %d\n", target, port)
-
 	// Output:
 	// Target: jabber.registro.br.
 	// Port: 5269
@@ -318,19 +288,15 @@ func ExampleHealthCheckerFunc() {
 		if err != nil {
 			return false, err
 		}
-
 		return response.StatusCode == http.StatusOK, nil
 	}))
-
 	// Retrieve the servers
 	if err := discovery.Refresh(); err != nil {
 		fmt.Println(err)
 		return
 	}
-
 	target, port := discovery.Choose()
 	fmt.Printf("Target: %s\nPort: %d\n", target, port)
-
 	// Output:
 	// Target: www.pantz.org.
 	// Port: 80
