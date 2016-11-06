@@ -13,39 +13,143 @@ import (
 	"github.com/rafaeljusto/dnsdisco"
 )
 
+var discoverScenarios = []struct {
+	description    string
+	service        string
+	proto          string
+	name           string
+	expectedTarget string
+	expectedPort   uint16
+	expectedError  error
+}{
+	{
+		description:    "it should retrieve the target correctly",
+		service:        "jabber",
+		proto:          "tcp",
+		name:           "registro.br",
+		expectedTarget: "jabber.registro.br.",
+		expectedPort:   5269,
+	},
+	{
+		description: "it should fail when the protocol is invalid",
+		service:     "jabber",
+		proto:       "xxx",
+		name:        "registro.br",
+		expectedError: &net.DNSError{
+			Err:  "no such host",
+			Name: "_jabber._xxx.registro.br",
+		},
+	},
+}
+
+var refreshAsyncScenarios = []struct {
+	description     string
+	service         string
+	proto           string
+	name            string
+	expectedTarget  string
+	expectedPort    uint16
+	expectedError   error
+	refreshInterval time.Duration
+	retriever       dnsdisco.RetrieverFunc
+	healthChecker   dnsdisco.HealthCheckerFunc
+	expectedErrors  []error
+}{
+	{
+		description:     "it should update the servers asynchronously",
+		service:         "jabber",
+		proto:           "tcp",
+		name:            "registro.br",
+		expectedTarget:  "server4.example.com.",
+		expectedPort:    4444,
+		refreshInterval: 100 * time.Millisecond,
+		retriever: func() dnsdisco.RetrieverFunc {
+			calls := 0
+
+			return dnsdisco.RetrieverFunc(func(service, proto, name string) ([]*net.SRV, error) {
+				calls++
+				if calls == 1 {
+					return []*net.SRV{
+						{
+							Target:   "server1.example.com.",
+							Port:     1111,
+							Priority: 10,
+							Weight:   20,
+						},
+						{
+							Target:   "server2.example.com.",
+							Port:     2222,
+							Priority: 10,
+							Weight:   10,
+						},
+					}, nil
+				}
+				return []*net.SRV{
+					{
+						Target:   "server3.example.com.",
+						Port:     3333,
+						Priority: 15,
+						Weight:   20,
+					},
+					{
+						Target:   "server4.example.com.",
+						Port:     4444,
+						Priority: 10,
+						Weight:   10,
+					},
+				}, nil
+			})
+		}(),
+		healthChecker: dnsdisco.HealthCheckerFunc(func(target string, port uint16, proto string) (ok bool, err error) {
+			return true, nil
+		}),
+	},
+	{
+		description:     "it should fail to retrieve the SRV records",
+		service:         "jabber",
+		proto:           "tcp",
+		name:            "registro.br",
+		expectedTarget:  "server1.example.com.",
+		expectedPort:    1111,
+		refreshInterval: 100 * time.Millisecond,
+		retriever: func() dnsdisco.RetrieverFunc {
+			calls := 0
+			return dnsdisco.RetrieverFunc(func(service, proto, name string) ([]*net.SRV, error) {
+				calls++
+				if calls == 1 {
+					return []*net.SRV{
+						{
+							Target:   "server1.example.com.",
+							Port:     1111,
+							Priority: 10,
+							Weight:   100,
+						},
+						{
+							Target:   "server2.example.com.",
+							Port:     2222,
+							Priority: 10,
+							Weight:   0,
+						},
+					}, nil
+				}
+
+				return nil, net.UnknownNetworkError("test")
+			})
+		}(),
+		healthChecker: dnsdisco.HealthCheckerFunc(func(target string, port uint16, proto string) (ok bool, err error) {
+
+			return true, nil
+		}),
+		expectedErrors: []error{
+			net.UnknownNetworkError("test"),
+		},
+	},
+}
+
 func TestDiscover(t *testing.T) {
 	t.Parallel()
 
-	scenarios := []struct {
-		description    string
-		service        string
-		proto          string
-		name           string
-		expectedTarget string
-		expectedPort   uint16
-		expectedError  error
-	}{
-		{
-			description:    "it should retrieve the target correctly",
-			service:        "jabber",
-			proto:          "tcp",
-			name:           "registro.br",
-			expectedTarget: "jabber.registro.br.",
-			expectedPort:   5269,
-		},
-		{
-			description: "it should fail when the protocol is invalid",
-			service:     "jabber",
-			proto:       "xxx",
-			name:        "registro.br",
-			expectedError: &net.DNSError{
-				Err:  "no such host",
-				Name: "_jabber._xxx.registro.br",
-			},
-		},
-	}
-
-	for i, item := range scenarios {
+	for i, item := range discoverScenarios {
 		target, port, err := dnsdisco.Discover(item.service, item.proto, item.name)
 
 		if target != item.expectedTarget {
@@ -77,111 +181,7 @@ func TestDiscover(t *testing.T) {
 func TestRefreshAsync(t *testing.T) {
 	t.Parallel()
 
-	scenarios := []struct {
-		description     string
-		service         string
-		proto           string
-		name            string
-		refreshInterval time.Duration
-		retriever       dnsdisco.RetrieverFunc
-		healthChecker   dnsdisco.HealthCheckerFunc
-		expectedTarget  string
-		expectedPort    uint16
-		expectedErrors  []error
-	}{
-		{
-			description:     "it should update the servers asynchronously",
-			service:         "jabber",
-			proto:           "tcp",
-			name:            "registro.br",
-			refreshInterval: 100 * time.Millisecond,
-			retriever: func() dnsdisco.RetrieverFunc {
-				calls := 0
-
-				return dnsdisco.RetrieverFunc(func(service, proto, name string) ([]*net.SRV, error) {
-					calls++
-					if calls == 1 {
-						return []*net.SRV{
-							{
-								Target:   "server1.example.com.",
-								Port:     1111,
-								Priority: 10,
-								Weight:   20,
-							},
-							{
-								Target:   "server2.example.com.",
-								Port:     2222,
-								Priority: 10,
-								Weight:   10,
-							},
-						}, nil
-					}
-
-					return []*net.SRV{
-						{
-							Target:   "server3.example.com.",
-							Port:     3333,
-							Priority: 15,
-							Weight:   20,
-						},
-						{
-							Target:   "server4.example.com.",
-							Port:     4444,
-							Priority: 10,
-							Weight:   10,
-						},
-					}, nil
-				})
-			}(),
-			healthChecker: dnsdisco.HealthCheckerFunc(func(target string, port uint16, proto string) (ok bool, err error) {
-				return true, nil
-			}),
-			expectedTarget: "server4.example.com.",
-			expectedPort:   4444,
-		},
-		{
-			description:     "it should fail to retrieve the SRV records",
-			service:         "jabber",
-			proto:           "tcp",
-			name:            "registro.br",
-			refreshInterval: 100 * time.Millisecond,
-			retriever: func() dnsdisco.RetrieverFunc {
-				calls := 0
-
-				return dnsdisco.RetrieverFunc(func(service, proto, name string) ([]*net.SRV, error) {
-					calls++
-					if calls == 1 {
-						return []*net.SRV{
-							{
-								Target:   "server1.example.com.",
-								Port:     1111,
-								Priority: 10,
-								Weight:   100,
-							},
-							{
-								Target:   "server2.example.com.",
-								Port:     2222,
-								Priority: 10,
-								Weight:   0,
-							},
-						}, nil
-					}
-
-					return nil, net.UnknownNetworkError("test")
-				})
-			}(),
-			healthChecker: dnsdisco.HealthCheckerFunc(func(target string, port uint16, proto string) (ok bool, err error) {
-				return true, nil
-			}),
-			expectedTarget: "server1.example.com.",
-			expectedPort:   1111,
-			expectedErrors: []error{
-				net.UnknownNetworkError("test"),
-			},
-		},
-	}
-
-	for i, item := range scenarios {
+	for i, item := range refreshAsyncScenarios {
 		discovery := dnsdisco.NewDiscovery(item.service, item.proto, item.name)
 		discovery.SetRetriever(item.retriever)
 		discovery.SetHealthChecker(item.healthChecker)
@@ -291,7 +291,6 @@ func ExampleRetrieverFunc() {
 				})
 			}
 		}
-
 		return
 	}))
 
