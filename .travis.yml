@@ -12,7 +12,8 @@ install:
   - go get github.com/mattn/goveralls
 
 script:
-  - go test -v -covermode=count -coverprofile=coverage.out && $HOME/gopath/bin/goveralls -coverprofile=coverage.out -service=travis-ci -repotoken $COVERALLS_TOKEN
+  - 'if [ "$TRAVIS_PULL_REQUEST" != "false" ]; then go test -v -cover; fi'
+  - 'if [ "$TRAVIS_PULL_REQUEST" = "false" ]; then go test -v -covermode=count -coverprofile=coverage.out && $HOME/gopath/bin/goveralls -coverprofile=coverage.out -service=travis-ci -repotoken $COVERALLS_TOKEN; fi'
 
 notifications:
   email:
