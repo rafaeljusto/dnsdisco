@@ -42,6 +42,37 @@ var discoverScenarios = []struct {
 	},
 }
 
+func TestDiscover(t *testing.T) {
+	t.Parallel()
+
+	for _, scenario := range discoverScenarios {
+		t.Run(scenario.description, func(t *testing.T) {
+			target, port, err := dnsdisco.Discover(scenario.service, scenario.proto, scenario.name)
+
+			if target != scenario.expectedTarget {
+				t.Errorf("mismatch targets. Expecting: “%s”; found “%s”", scenario.expectedTarget, target)
+			}
+
+			if port != scenario.expectedPort {
+				t.Errorf("mismatch ports. Expecting: “%d”; found “%d”", scenario.expectedPort, port)
+			}
+
+			// As the resolver change between machines, we can't guess the DNSError name's attribute. So we
+			// need to inject the value on the expected error
+			dnsError, ok1 := err.(*net.DNSError)
+			expectedDNSError, ok2 := scenario.expectedError.(*net.DNSError)
+
+			if ok1 && ok2 {
+				expectedDNSError.Server = dnsError.Server
+			}
+
+			if !reflect.DeepEqual(err, scenario.expectedError) {
+				t.Errorf("mismatch errors. Expecting: “%v”; found “%v”", scenario.expectedError, err)
+			}
+		})
+	}
+}
+
 var refreshAsyncScenarios = []struct {
 	description     string
 	service         string
@@ -146,67 +177,33 @@ var refreshAsyncScenarios = []struct {
 	},
 }
 
-func TestDiscover(t *testing.T) {
-	t.Parallel()
-
-	for i, item := range discoverScenarios {
-		target, port, err := dnsdisco.Discover(item.service, item.proto, item.name)
-
-		if target != item.expectedTarget {
-			t.Errorf("scenario %d, “%s”: mismatch targets. Expecting: “%s”; found “%s”",
-				i, item.description, item.expectedTarget, target)
-		}
-
-		if port != item.expectedPort {
-			t.Errorf("scenario %d, “%s”: mismatch ports. Expecting: “%d”; found “%d”",
-				i, item.description, item.expectedPort, port)
-		}
-
-		// As the resolver change between machines, we can't guess the DNSError name's attribute. So we
-		// need to inject the value on the expected error
-		dnsError, ok1 := err.(*net.DNSError)
-		expectedDNSError, ok2 := item.expectedError.(*net.DNSError)
-
-		if ok1 && ok2 {
-			expectedDNSError.Server = dnsError.Server
-		}
-
-		if !reflect.DeepEqual(err, item.expectedError) {
-			t.Errorf("scenario %d, “%s”: mismatch errors. Expecting: “%v”; found “%v”",
-				i, item.description, item.expectedError, err)
-		}
-	}
-}
-
 func TestRefreshAsync(t *testing.T) {
 	t.Parallel()
 
-	for i, item := range refreshAsyncScenarios {
-		discovery := dnsdisco.NewDiscovery(item.service, item.proto, item.name)
-		discovery.SetRetriever(item.retriever)
-		discovery.SetHealthChecker(item.healthChecker)
+	for _, scenario := range refreshAsyncScenarios {
+		t.Run(scenario.description, func(t *testing.T) {
+			discovery := dnsdisco.NewDiscovery(scenario.service, scenario.proto, scenario.name)
+			discovery.SetRetriever(scenario.retriever)
+			discovery.SetHealthChecker(scenario.healthChecker)
 
-		finish := discovery.RefreshAsync(item.refreshInterval)
-		time.Sleep(item.refreshInterval + (50 * time.Millisecond))
+			finish := discovery.RefreshAsync(scenario.refreshInterval)
+			defer close(finish)
 
-		target, port := discovery.Choose()
+			time.Sleep(scenario.refreshInterval + (50 * time.Millisecond))
+			target, port := discovery.Choose()
 
-		if target != item.expectedTarget {
-			t.Errorf("scenario %d, “%s”: mismatch targets. Expecting: “%s”; found “%s”",
-				i, item.description, item.expectedTarget, target)
-		}
+			if target != scenario.expectedTarget {
+				t.Errorf("mismatch targets. Expecting: “%s”; found “%s”", scenario.expectedTarget, target)
+			}
 
-		if port != item.expectedPort {
-			t.Errorf("scenario %d, “%s”: mismatch ports. Expecting: “%d”; found “%d”",
-				i, item.description, item.expectedPort, port)
-		}
+			if port != scenario.expectedPort {
+				t.Errorf("mismatch ports. Expecting: “%d”; found “%d”", scenario.expectedPort, port)
+			}
 
-		if errs := discovery.Errors(); !reflect.DeepEqual(errs, item.expectedErrors) {
-			t.Errorf("scenario %d, “%s”: mismatch errors. Expecting: “%#v”; found “%#v”",
-				i, item.description, item.expectedErrors, errs)
-		}
-
-		close(finish)
+			if errs := discovery.Errors(); !reflect.DeepEqual(errs, scenario.expectedErrors) {
+				t.Errorf("mismatch errors. Expecting: “%#v”; found “%#v”", scenario.expectedErrors, errs)
+			}
+		})
 	}
 }
 
@@ -291,6 +288,7 @@ func ExampleRetrieverFunc() {
 				})
 			}
 		}
+
 		return
 	}))
 

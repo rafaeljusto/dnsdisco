@@ -9,271 +9,270 @@ import (
 	"github.com/rafaeljusto/dnsdisco"
 )
 
+var defaultLoadBalancerScenarios = []struct {
+	description    string
+	service        string
+	proto          string
+	name           string
+	retriever      dnsdisco.RetrieverFunc
+	healthChecker  dnsdisco.HealthCheckerFunc
+	rerun          int
+	expectedTarget string
+	expectedPort   uint16
+}{
+	{
+		description: "it should fallback inside priority group",
+		service:     "jabber",
+		proto:       "tcp",
+		name:        "registro.br",
+		retriever: dnsdisco.RetrieverFunc(func(service, proto, name string) ([]*net.SRV, error) {
+			return []*net.SRV{
+				{
+					Target:   "server1.example.com.",
+					Port:     1111,
+					Priority: 10,
+					Weight:   20,
+				},
+				{
+					Target:   "server2.example.com.",
+					Port:     2222,
+					Priority: 10,
+					Weight:   10,
+				},
+			}, nil
+		}),
+		healthChecker: dnsdisco.HealthCheckerFunc(func(target string, port uint16, proto string) (ok bool, err error) {
+			return target == "server2.example.com.", nil
+		}),
+		expectedTarget: "server2.example.com.",
+		expectedPort:   2222,
+	},
+	{
+		description: "it should fallback to other priority group by health check",
+		service:     "jabber",
+		proto:       "tcp",
+		name:        "registro.br",
+		retriever: dnsdisco.RetrieverFunc(func(service, proto, name string) ([]*net.SRV, error) {
+			return []*net.SRV{
+				{
+					Target:   "server1.example.com.",
+					Port:     1111,
+					Priority: 10,
+					Weight:   20,
+				},
+				{
+					Target:   "server2.example.com.",
+					Port:     2222,
+					Priority: 10,
+					Weight:   10,
+				},
+				{
+					Target:   "server3.example.com.",
+					Port:     3333,
+					Priority: 20,
+					Weight:   20,
+				},
+				{
+					Target:   "server4.example.com.",
+					Port:     4444,
+					Priority: 20,
+					Weight:   10,
+				},
+			}, nil
+		}),
+		healthChecker: dnsdisco.HealthCheckerFunc(func(target string, port uint16, proto string) (ok bool, err error) {
+			return target == "server4.example.com.", nil
+		}),
+		expectedTarget: "server4.example.com.",
+		expectedPort:   4444,
+	},
+	{
+		description: "it should fallback to other priority group by used counter",
+		service:     "jabber",
+		proto:       "tcp",
+		name:        "registro.br",
+		retriever: dnsdisco.RetrieverFunc(func(service, proto, name string) ([]*net.SRV, error) {
+			return []*net.SRV{
+				{
+					Target:   "server1.example.com.",
+					Port:     1111,
+					Priority: 10,
+					Weight:   20,
+				},
+				{
+					Target:   "server2.example.com.",
+					Port:     2222,
+					Priority: 10,
+					Weight:   10,
+				},
+				{
+					Target:   "server3.example.com.",
+					Port:     3333,
+					Priority: 20,
+					Weight:   20,
+				},
+				{
+					Target:   "server4.example.com.",
+					Port:     4444,
+					Priority: 20,
+					Weight:   10,
+				},
+			}, nil
+		}),
+		healthChecker: dnsdisco.HealthCheckerFunc(func(target string, port uint16, proto string) (ok bool, err error) {
+			return target != "server3.example.com.", nil
+		}),
+		rerun:          2,
+		expectedTarget: "server4.example.com.",
+		expectedPort:   4444,
+	},
+	{
+		description: "it should select the less used server",
+		service:     "jabber",
+		proto:       "tcp",
+		name:        "registro.br",
+		retriever: dnsdisco.RetrieverFunc(func(service, proto, name string) ([]*net.SRV, error) {
+			return []*net.SRV{
+				{
+					Target:   "server1.example.com.",
+					Port:     1111,
+					Priority: 10,
+					Weight:   200,
+				},
+				{
+					Target:   "server2.example.com.",
+					Port:     2222,
+					Priority: 10,
+					Weight:   0,
+				},
+			}, nil
+		}),
+		healthChecker: dnsdisco.HealthCheckerFunc(func(target string, port uint16, proto string) (ok bool, err error) {
+			switch target {
+			case "server1.example.com.":
+				return true, nil
+			case "server2.example.com.":
+				return true, nil
+			}
+
+			return false, nil
+		}),
+		rerun:          1,
+		expectedTarget: "server2.example.com.",
+		expectedPort:   2222,
+	},
+	{
+		description: "it should retrieve the target correctly (same target different port)",
+		service:     "jabber",
+		proto:       "tcp",
+		name:        "registro.br",
+		retriever: dnsdisco.RetrieverFunc(func(service, proto, name string) ([]*net.SRV, error) {
+			return []*net.SRV{
+				{
+					Target:   "server1.example.com.",
+					Port:     1111,
+					Priority: 10,
+					Weight:   0,
+				},
+				{
+					Target:   "server1.example.com.",
+					Port:     2222,
+					Priority: 10,
+					Weight:   200,
+				},
+			}, nil
+		}),
+		healthChecker: dnsdisco.HealthCheckerFunc(func(target string, port uint16, proto string) (ok bool, err error) {
+			return target == "server1.example.com.", nil
+		}),
+		expectedTarget: "server1.example.com.",
+		expectedPort:   2222,
+	},
+	{
+		description: "it should not select any target",
+		service:     "jabber",
+		proto:       "tcp",
+		name:        "registro.br",
+		retriever: dnsdisco.RetrieverFunc(func(service, proto, name string) ([]*net.SRV, error) {
+			return []*net.SRV{
+				{
+					Target:   "server1.example.com.",
+					Port:     1111,
+					Priority: 10,
+					Weight:   200,
+				},
+				{
+					Target:   "server2.example.com.",
+					Port:     2222,
+					Priority: 10,
+					Weight:   0,
+				},
+			}, nil
+		}),
+		healthChecker: dnsdisco.HealthCheckerFunc(func(target string, port uint16, proto string) (ok bool, err error) {
+			return false, nil
+		}),
+		expectedTarget: "",
+		expectedPort:   0,
+	},
+	{
+		description: "it should ignore a sick server",
+		service:     "jabber",
+		proto:       "tcp",
+		name:        "registro.br",
+		retriever: dnsdisco.RetrieverFunc(func(service, proto, name string) ([]*net.SRV, error) {
+			return []*net.SRV{
+				{
+					Target:   "server1.example.com.",
+					Port:     1111,
+					Priority: 1,
+					Weight:   20,
+				},
+				{
+					Target:   "server2.example.com.",
+					Port:     2222,
+					Priority: 2,
+					Weight:   20,
+				},
+			}, nil
+		}),
+		healthChecker: dnsdisco.HealthCheckerFunc(func(target string, port uint16, proto string) (ok bool, err error) {
+			return target == "server1.example.com.", nil
+		}),
+		rerun:          1,
+		expectedTarget: "server1.example.com.",
+		expectedPort:   1111,
+	},
+}
+
 func TestDefaultLoadBalancer(t *testing.T) {
 	t.Parallel()
 
-	scenarios := []struct {
-		description    string
-		service        string
-		proto          string
-		name           string
-		retriever      dnsdisco.RetrieverFunc
-		healthChecker  dnsdisco.HealthCheckerFunc
-		rerun          int
-		expectedTarget string
-		expectedPort   uint16
-	}{
-		{
-			description: "it should fallback inside priority group",
-			service:     "jabber",
-			proto:       "tcp",
-			name:        "registro.br",
-			retriever: dnsdisco.RetrieverFunc(func(service, proto, name string) ([]*net.SRV, error) {
-				return []*net.SRV{
-					{
-						Target:   "server1.example.com.",
-						Port:     1111,
-						Priority: 10,
-						Weight:   20,
-					},
-					{
-						Target:   "server2.example.com.",
-						Port:     2222,
-						Priority: 10,
-						Weight:   10,
-					},
-				}, nil
-			}),
-			healthChecker: dnsdisco.HealthCheckerFunc(func(target string, port uint16, proto string) (ok bool, err error) {
-				return target == "server2.example.com.", nil
-			}),
-			expectedTarget: "server2.example.com.",
-			expectedPort:   2222,
-		},
-		{
-			description: "it should fallback to other priority group by health check",
-			service:     "jabber",
-			proto:       "tcp",
-			name:        "registro.br",
-			retriever: dnsdisco.RetrieverFunc(func(service, proto, name string) ([]*net.SRV, error) {
-				return []*net.SRV{
-					{
-						Target:   "server1.example.com.",
-						Port:     1111,
-						Priority: 10,
-						Weight:   20,
-					},
-					{
-						Target:   "server2.example.com.",
-						Port:     2222,
-						Priority: 10,
-						Weight:   10,
-					},
-					{
-						Target:   "server3.example.com.",
-						Port:     3333,
-						Priority: 20,
-						Weight:   20,
-					},
-					{
-						Target:   "server4.example.com.",
-						Port:     4444,
-						Priority: 20,
-						Weight:   10,
-					},
-				}, nil
-			}),
-			healthChecker: dnsdisco.HealthCheckerFunc(func(target string, port uint16, proto string) (ok bool, err error) {
-				return target == "server4.example.com.", nil
-			}),
-			expectedTarget: "server4.example.com.",
-			expectedPort:   4444,
-		},
-		{
-			description: "it should fallback to other priority group by used counter",
-			service:     "jabber",
-			proto:       "tcp",
-			name:        "registro.br",
-			retriever: dnsdisco.RetrieverFunc(func(service, proto, name string) ([]*net.SRV, error) {
-				return []*net.SRV{
-					{
-						Target:   "server1.example.com.",
-						Port:     1111,
-						Priority: 10,
-						Weight:   20,
-					},
-					{
-						Target:   "server2.example.com.",
-						Port:     2222,
-						Priority: 10,
-						Weight:   10,
-					},
-					{
-						Target:   "server3.example.com.",
-						Port:     3333,
-						Priority: 20,
-						Weight:   20,
-					},
-					{
-						Target:   "server4.example.com.",
-						Port:     4444,
-						Priority: 20,
-						Weight:   10,
-					},
-				}, nil
-			}),
-			healthChecker: dnsdisco.HealthCheckerFunc(func(target string, port uint16, proto string) (ok bool, err error) {
-				return target != "server3.example.com.", nil
-			}),
-			rerun:          2,
-			expectedTarget: "server4.example.com.",
-			expectedPort:   4444,
-		},
-		{
-			description: "it should select the less used server",
-			service:     "jabber",
-			proto:       "tcp",
-			name:        "registro.br",
-			retriever: dnsdisco.RetrieverFunc(func(service, proto, name string) ([]*net.SRV, error) {
-				return []*net.SRV{
-					{
-						Target:   "server1.example.com.",
-						Port:     1111,
-						Priority: 10,
-						Weight:   200,
-					},
-					{
-						Target:   "server2.example.com.",
-						Port:     2222,
-						Priority: 10,
-						Weight:   0,
-					},
-				}, nil
-			}),
-			healthChecker: dnsdisco.HealthCheckerFunc(func(target string, port uint16, proto string) (ok bool, err error) {
-				switch target {
-				case "server1.example.com.":
-					return true, nil
-				case "server2.example.com.":
-					return true, nil
-				}
+	for _, scenario := range defaultLoadBalancerScenarios {
+		t.Run(scenario.description, func(t *testing.T) {
+			discovery := dnsdisco.NewDiscovery(scenario.service, scenario.proto, scenario.name)
+			discovery.SetRetriever(scenario.retriever)
+			discovery.SetHealthChecker(scenario.healthChecker)
 
-				return false, nil
-			}),
-			rerun:          1,
-			expectedTarget: "server2.example.com.",
-			expectedPort:   2222,
-		},
-		{
-			description: "it should retrieve the target correctly (same target different port)",
-			service:     "jabber",
-			proto:       "tcp",
-			name:        "registro.br",
-			retriever: dnsdisco.RetrieverFunc(func(service, proto, name string) ([]*net.SRV, error) {
-				return []*net.SRV{
-					{
-						Target:   "server1.example.com.",
-						Port:     1111,
-						Priority: 10,
-						Weight:   0,
-					},
-					{
-						Target:   "server1.example.com.",
-						Port:     2222,
-						Priority: 10,
-						Weight:   200,
-					},
-				}, nil
-			}),
-			healthChecker: dnsdisco.HealthCheckerFunc(func(target string, port uint16, proto string) (ok bool, err error) {
-				return target == "server1.example.com.", nil
-			}),
-			expectedTarget: "server1.example.com.",
-			expectedPort:   2222,
-		},
-		{
-			description: "it should not select any target",
-			service:     "jabber",
-			proto:       "tcp",
-			name:        "registro.br",
-			retriever: dnsdisco.RetrieverFunc(func(service, proto, name string) ([]*net.SRV, error) {
-				return []*net.SRV{
-					{
-						Target:   "server1.example.com.",
-						Port:     1111,
-						Priority: 10,
-						Weight:   200,
-					},
-					{
-						Target:   "server2.example.com.",
-						Port:     2222,
-						Priority: 10,
-						Weight:   0,
-					},
-				}, nil
-			}),
-			healthChecker: dnsdisco.HealthCheckerFunc(func(target string, port uint16, proto string) (ok bool, err error) {
-				return false, nil
-			}),
-			expectedTarget: "",
-			expectedPort:   0,
-		},
-		{
-			description: "it should ignore a sick server",
-			service:     "jabber",
-			proto:       "tcp",
-			name:        "registro.br",
-			retriever: dnsdisco.RetrieverFunc(func(service, proto, name string) ([]*net.SRV, error) {
-				return []*net.SRV{
-					{
-						Target:   "server1.example.com.",
-						Port:     1111,
-						Priority: 1,
-						Weight:   20,
-					},
-					{
-						Target:   "server2.example.com.",
-						Port:     2222,
-						Priority: 2,
-						Weight:   20,
-					},
-				}, nil
-			}),
-			healthChecker: dnsdisco.HealthCheckerFunc(func(target string, port uint16, proto string) (ok bool, err error) {
-				return target == "server1.example.com.", nil
-			}),
-			rerun:          1,
-			expectedTarget: "server1.example.com.",
-			expectedPort:   1111,
-		},
-	}
+			if err := discovery.Refresh(); err != nil {
+				t.Errorf("unexpected error while retrieving DNS records. Details: %s", err)
+			}
 
-	for i, item := range scenarios {
-		discovery := dnsdisco.NewDiscovery(item.service, item.proto, item.name)
-		discovery.SetRetriever(item.retriever)
-		discovery.SetHealthChecker(item.healthChecker)
+			var target string
+			var port uint16
 
-		if err := discovery.Refresh(); err != nil {
-			t.Errorf("scenario %d, “%s”: unexpected error while retrieving DNS records. Details: %s",
-				i, item.description, err)
-		}
+			for j := 0; j <= scenario.rerun; j++ {
+				target, port = discovery.Choose()
+			}
 
-		var target string
-		var port uint16
+			if target != scenario.expectedTarget {
+				t.Errorf("mismatch targets. Expecting: “%s”; found “%s”", scenario.expectedTarget, target)
+			}
 
-		for j := 0; j <= item.rerun; j++ {
-			target, port = discovery.Choose()
-		}
-
-		if target != item.expectedTarget {
-			t.Errorf("scenario %d, “%s”: mismatch targets. Expecting: “%s”; found “%s”",
-				i, item.description, item.expectedTarget, target)
-		}
-
-		if port != item.expectedPort {
-			t.Errorf("scenario %d, “%s”: mismatch ports. Expecting: “%d”; found “%d”",
-				i, item.description, item.expectedPort, port)
-		}
+			if port != scenario.expectedPort {
+				t.Errorf("mismatch ports. Expecting: “%d”; found “%d”", scenario.expectedPort, port)
+			}
+		})
 	}
 }
 
@@ -296,7 +295,7 @@ func TestDefaultHealthChecker(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	scenarios := []struct {
+	defaultHealthCheckerScenarios := []struct {
 		description    string
 		service        string
 		proto          string
@@ -408,27 +407,26 @@ func TestDefaultHealthChecker(t *testing.T) {
 		},
 	}
 
-	for i, item := range scenarios {
-		discovery := dnsdisco.NewDiscovery(item.service, item.proto, item.name)
-		discovery.SetRetriever(item.retriever)
-		discovery.SetLoadBalancer(item.loadBalancer)
+	for _, scenario := range defaultHealthCheckerScenarios {
+		t.Run(scenario.description, func(t *testing.T) {
+			discovery := dnsdisco.NewDiscovery(scenario.service, scenario.proto, scenario.name)
+			discovery.SetRetriever(scenario.retriever)
+			discovery.SetLoadBalancer(scenario.loadBalancer)
 
-		if err := discovery.Refresh(); err != nil {
-			t.Errorf("scenario %d, “%s”: unexpected error while retrieving DNS records. Details: %s",
-				i, item.description, err)
-		}
+			if err := discovery.Refresh(); err != nil {
+				t.Errorf("unexpected error while retrieving DNS records. Details: %s", err)
+			}
 
-		target, port := discovery.Choose()
+			target, port := discovery.Choose()
 
-		if target != item.expectedTarget {
-			t.Errorf("scenario %d, “%s”: mismatch targets. Expecting: “%s”; found “%s”",
-				i, item.description, item.expectedTarget, target)
-		}
+			if target != scenario.expectedTarget {
+				t.Errorf("mismatch targets. Expecting: “%s”; found “%s”", scenario.expectedTarget, target)
+			}
 
-		if port != item.expectedPort {
-			t.Errorf("scenario %d, “%s”: mismatch ports. Expecting: “%d”; found “%d”",
-				i, item.description, item.expectedPort, port)
-		}
+			if port != scenario.expectedPort {
+				t.Errorf("mismatch ports. Expecting: “%d”; found “%d”", scenario.expectedPort, port)
+			}
+		})
 	}
 }
 
